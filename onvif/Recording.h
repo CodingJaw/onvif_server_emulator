@@ -28,9 +28,9 @@ namespace osrv
 		}
 
 		boost::posix_time::ptime DateFrom() const;
-		boost::posix_time::ptime DateUntil() const;
+                boost::posix_time::ptime DateUntil() const;
 
-		std::shared_ptr<RecordingEvents> RecordingEvents();
+                std::shared_ptr<RecordingEvents> GetRecordingEvents();
 		
 
 	private:

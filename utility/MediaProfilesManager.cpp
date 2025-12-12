@@ -2,6 +2,7 @@
 
 #include <boost/property_tree/json_parser.hpp>
 
+#include <algorithm>
 #include <format>
 
 namespace pt = boost::property_tree;
@@ -79,8 +80,8 @@ void MediaProfilesManager::Delete(const std::string& profileToken) const
 	auto& mediaProfilesTree = readerWriter_->ConfigsTree().get_child("MediaProfiles");
 	auto begin = mediaProfilesTree.begin();
 	auto end = mediaProfilesTree.end();
-	auto res_it = std::find_if(
-			begin, end, [&profileToken](const auto& p) { return profileToken == p.second.get<std::string>("token"); });
+        auto res_it = std::find_if(
+                        begin, end, [&profileToken](const auto& p) { return profileToken == p.second.template get<std::string>("token"); });
 
 	if (res_it == end)
 		throw osrv::no_such_profile();
@@ -100,19 +101,20 @@ void MediaProfilesManager::AddConfiguration(const std::string& profileToken, con
 
 	auto begin = mediaProfilesTree.begin();
 	auto end = mediaProfilesTree.end();
-	auto res_it = std::find_if(
-			begin, end, [&profileToken](const auto& p) { return profileToken == p.second.get<std::string>("token"); });
+        auto res_it = std::find_if(
+                        begin, end, [&profileToken](const auto& p) { return profileToken == p.second.template get<std::string>("token"); });
 
 	if (res_it == end)
 		throw osrv::no_such_profile();
 
-	if (osrv::CONFIGURATION_ENUMERATION.end() == std::ranges::find(osrv::CONFIGURATION_ENUMERATION, configType))
-		throw osrv::invalid_config_type();
+        if (std::find(osrv::CONFIGURATION_ENUMERATION.begin(), osrv::CONFIGURATION_ENUMERATION.end(), configType) ==
+                        osrv::CONFIGURATION_ENUMERATION.end())
+                throw osrv::invalid_config_type();
 
 	const auto& config_tree = readerWriter_->ConfigsTree().get_child(configType);
-	if (auto config_tree_res_it = std::ranges::find_if(
-					config_tree, [&configToken](const auto& it) { return configToken == it.second.get<std::string>("token"); });
-			config_tree_res_it == config_tree.end())
+        if (auto config_tree_res_it = std::find_if(config_tree.begin(), config_tree.end(),
+                                        [&configToken](const auto& it) { return configToken == it.second.template get<std::string>("token"); });
+                        config_tree_res_it == config_tree.end())
 	{
 		throw osrv::invalid_token();
 	}
@@ -128,18 +130,18 @@ void MediaProfilesManager::RemoveConfiguration(std::string_view profileToken, st
 	auto profile_it = getProfileNode(profileToken);
 
 	// if config token is provided, remove by config token
-	if (!configToken.empty())
-	{
-		auto config_it = std::ranges::find_if(profile_it->second, [&configToken](const auto& item) {
-			auto key = item.first;
+        if (!configToken.empty())
+        {
+                auto config_it = std::find_if(profile_it->second.begin(), profile_it->second.end(), [&configToken](const auto& item) {
+                        auto key = item.first;
 
 			static const std::vector INSTANCES_ALLOWED_TO_REMOVE(osrv::CONFIGURATION_ENUMERATION.begin() + 1,
 																													 osrv::CONFIGURATION_ENUMERATION.end());
 
 			bool isConfig =
-					std::ranges::any_of(INSTANCES_ALLOWED_TO_REMOVE, [&key](auto cfg_type) { return key == cfg_type; });
+					std::any_of(INSTANCES_ALLOWED_TO_REMOVE.begin(), INSTANCES_ALLOWED_TO_REMOVE.end(), [&key](auto cfg_type) { return key == cfg_type; });
 
-			return isConfig && configToken == item.second.get_value<std::string>();
+                        return isConfig && configToken == item.second.template get_value<std::string>();
 		});
 
 		if (config_it != profile_it->second.end())
@@ -150,8 +152,9 @@ void MediaProfilesManager::RemoveConfiguration(std::string_view profileToken, st
 		}
 	}
 
-	if (osrv::CONFIGURATION_ENUMERATION.end() == std::ranges::find(osrv::CONFIGURATION_ENUMERATION, configType))
-		throw osrv::invalid_config_type();
+        if (std::find(osrv::CONFIGURATION_ENUMERATION.begin(), osrv::CONFIGURATION_ENUMERATION.end(), configType) ==
+                        osrv::CONFIGURATION_ENUMERATION.end())
+                throw osrv::invalid_config_type();
 
 	if (configType == osrv::CONFIGURATION_ENUMERATION[osrv::CONFIGURATION_TYPE::ALL])
 	{
@@ -168,7 +171,7 @@ void MediaProfilesManager::RemoveConfiguration(std::string_view profileToken, st
 			{
 				static const std::vector INSTANCES_ALLOWED_TO_REMOVE(osrv::CONFIGURATION_ENUMERATION.begin() + 1,
 																														 osrv::CONFIGURATION_ENUMERATION.end());
-				bool isConfig = std::ranges::any_of(INSTANCES_ALLOWED_TO_REMOVE,
+				bool isConfig = std::any_of(INSTANCES_ALLOWED_TO_REMOVE.begin(), INSTANCES_ALLOWED_TO_REMOVE.end(),
 																						[key = it->first](auto cfg_type) { return key == cfg_type; });
 				if (isConfig)
 				{
@@ -201,8 +204,8 @@ pt::ptree::iterator MediaProfilesManager::getProfileNode(std::string_view profil
 	auto& mediaProfilesTree = readerWriter_->ConfigsTree().get_child("MediaProfiles");
 	auto begin = mediaProfilesTree.begin();
 	auto end = mediaProfilesTree.end();
-	auto profile_it = std::find_if(
-			begin, end, [&profileToken](const auto& p) { return profileToken == p.second.get<std::string>("token"); });
+        auto profile_it = std::find_if(
+                        begin, end, [&profileToken](const auto& p) { return profileToken == p.second.template get<std::string>("token"); });
 
 	if (profile_it == end)
 		throw osrv::no_such_profile();
@@ -215,8 +218,8 @@ const boost::property_tree::ptree& MediaProfilesManager::GetProfileByToken(const
 	auto& profilesTree = readerWriter_->ConfigsTree().get_child("MediaProfiles");
 	auto begin = profilesTree.begin();
 	auto end = profilesTree.end();
-	auto res_it =
-			std::find_if(begin, end, [&token](const auto& p) { return token == p.second.get<std::string>("token"); });
+        auto res_it = std::find_if(begin, end,
+                        [&token](const auto& p) { return token == p.second.template get<std::string>("token"); });
 
 	if (res_it == end)
 	{
@@ -240,8 +243,9 @@ boost::property_tree::ptree MediaProfilesManager::GetProfileByToken(const std::s
 
 	for (const auto& profileConfig = GetProfileByToken(token); const auto& [name, tree] : profileConfig)
 	{
-		if (name == "token" || name == "fixed" || name == "Name" || std::ranges::find(configs, "All") != configs.end() ||
-				std::ranges::find(configs, name) != configs.end())
+                if (name == "token" || name == "fixed" || name == "Name" ||
+                                std::find(configs.begin(), configs.end(), "All") != configs.end() ||
+                                std::find(configs.begin(), configs.end(), name) != configs.end())
 		{
 			profileWithFilteredConfigs.put(name, tree.data());
 		}
@@ -254,8 +258,8 @@ const boost::property_tree::ptree& MediaProfilesManager::GetConfigByToken(std::s
 																																					std::string_view configType) const
 {
 	auto& configsTree = readerWriter_->ConfigsTree().get_child(configType.data());
-	const auto res_it = std::ranges::find_if(
-			configsTree, [&token](const auto& p) { return token == p.second.get<std::string>("token"); });
+        const auto res_it = std::find_if(configsTree.begin(), configsTree.end(),
+                        [&token](const auto& p) { return token == p.second.template get<std::string>("token"); });
 
 	if (res_it == configsTree.end())
 		throw osrv::no_config{};
@@ -268,7 +272,7 @@ boost::property_tree::ptree& MediaProfilesManager::GetProfileByName(const std::s
 	auto& profilesTree = readerWriter_->ConfigsTree().get_child("MediaProfiles");
 	auto begin = profilesTree.begin();
 	auto end = profilesTree.end();
-	auto res_it = std::find_if(begin, end, [&name](const auto& p) { return name == p.second.get<std::string>("Name"); });
+        auto res_it = std::find_if(begin, end, [&name](const auto& p) { return name == p.second.template get<std::string>("Name"); });
 
 	if (res_it == end)
 	{
