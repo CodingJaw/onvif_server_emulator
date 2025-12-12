@@ -6,8 +6,13 @@
 
 #include "onvif_services/service_configs.h"
 
+#include <algorithm>
 #include <cstdlib>
+#include <filesystem>
+#include <numeric>
+#include <sstream>
 #include <string>
+#include <vector>
 
 static const std::string TITLE = R"(
    ___  _   ___     _____ _____   ____                             _____                 _       _             
@@ -29,17 +34,45 @@ int main(int argc, char** argv)
 	std::cout << TITLE << std::endl;
 	std::cout << "Application version: " << SERVER_VERSION << std::endl;
 
-	std::string configs_dir = DEFAULT_CONFIGS_DIR;
+        namespace fs = std::filesystem;
+
+        fs::path configs_dir = DEFAULT_CONFIGS_DIR;
 
 	std::stringstream ss;
 
 	if (argc > 1)
 	{
-		configs_dir = argv[1];
-		ss << "Command line arguments are found. Configs read from " << configs_dir;
-	}
+                configs_dir = argv[1];
+                ss << "Command line arguments are found. Configs read from " << configs_dir;
+        }
 
-	std::shared_ptr<boost::property_tree::ptree> serverConfigs = osrv::ServiceConfigs("common", configs_dir);
+        const auto executable_dir = fs::absolute(fs::path(argv[0])).parent_path();
+        const std::vector<fs::path> config_candidates = {
+                configs_dir,
+                executable_dir / configs_dir,
+                executable_dir / ".." / "server_configs"
+        };
+
+        auto resolved_config_dir = std::find_if(config_candidates.begin(), config_candidates.end(), [](const fs::path& candidate) {
+                std::error_code ec;
+                return fs::exists(candidate, ec) && fs::is_directory(candidate, ec);
+        });
+
+        if (resolved_config_dir == config_candidates.end())
+        {
+                throw std::runtime_error("No valid configuration directory found. Tried: " +
+                                         std::accumulate(std::next(config_candidates.begin()), config_candidates.end(),
+                                                         config_candidates.front().string(),
+                                                         [](std::string acc, const fs::path& val) {
+                                                                acc += ", " + val.string();
+                                                                return acc;
+                                                         }));
+        }
+
+        configs_dir = resolved_config_dir->lexically_normal();
+        const auto configs_dir_str = configs_dir.string();
+
+        std::shared_ptr<boost::property_tree::ptree> serverConfigs = osrv::ServiceConfigs("common", configs_dir_str);
 	std::shared_ptr<ILogger> logger;
 	LoggerConfigs lconfigs(serverConfigs);
 	if (lconfigs.LogOutput() == "console")
@@ -56,21 +89,30 @@ int main(int argc, char** argv)
 	logger->Info("New run. " + ss.str());
 	logger->Info("Logging level: " + logger->GetLogLevel());
 
-	if (auto env_gst_plugin_path = std::string(std::getenv("GST_PLUGIN_PATH")); env_gst_plugin_path.empty())
-	{
-		std::cerr << "For proper work please install required GStreamer plugins and add the GST_PLUGIN_PATH environment "
-								 "variable to point at the installation directory!";
-		return -1;
-	}
-	else
-	{
-		logger->Debug("Used GStreamer plugins directory: " + env_gst_plugin_path);
-	}
+        const char* env_gst_plugin_path_raw = std::getenv("GST_PLUGIN_PATH");
+        if (env_gst_plugin_path_raw == nullptr)
+        {
+                std::cerr << "For proper work please install required GStreamer plugins and add the GST_PLUGIN_PATH environment "
+                             "variable to point at the installation directory!";
+                return -1;
+        }
+
+        const std::string env_gst_plugin_path{env_gst_plugin_path_raw};
+        if (env_gst_plugin_path.empty())
+        {
+                std::cerr << "For proper work please install required GStreamer plugins and add the GST_PLUGIN_PATH environment"
+                                                                 "variable to point at the installation directory!";
+                return -1;
+        }
+        else
+        {
+                logger->Debug("Used GStreamer plugins directory: " + env_gst_plugin_path);
+        }
 
 	try
 	{
 		// std::shared_ptr<osrv::IOnvifServer> server = std::make_shared<osrv::Server>(configs_dir, logger);
-		std::shared_ptr<osrv::Server> server{std::make_shared<osrv::Server>(configs_dir, logger)};
+                std::shared_ptr<osrv::Server> server{std::make_shared<osrv::Server>(configs_dir_str, logger)};
 		server->init();
 		server->run();
 	}
