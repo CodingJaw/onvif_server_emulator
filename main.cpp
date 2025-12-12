@@ -90,19 +90,15 @@ int main(int argc, char** argv)
 	logger->Info("Logging level: " + logger->GetLogLevel());
 
         const char* env_gst_plugin_path_raw = std::getenv("GST_PLUGIN_PATH");
-        if (env_gst_plugin_path_raw == nullptr)
-        {
-                std::cerr << "For proper work please install required GStreamer plugins and add the GST_PLUGIN_PATH environment "
-                             "variable to point at the installation directory!";
-                return -1;
-        }
+        const std::string env_gst_plugin_path = env_gst_plugin_path_raw ? env_gst_plugin_path_raw : "";
 
-        const std::string env_gst_plugin_path{env_gst_plugin_path_raw};
         if (env_gst_plugin_path.empty())
         {
-                std::cerr << "For proper work please install required GStreamer plugins and add the GST_PLUGIN_PATH environment"
-                                                                 "variable to point at the installation directory!";
-                return -1;
+                const std::string msg =
+                        "For proper work please install required GStreamer plugins and add the GST_PLUGIN_PATH environment "
+                        "variable to point at the installation directory!";
+                logger->Warn(msg);
+                std::cerr << msg << std::endl;
         }
         else
         {
