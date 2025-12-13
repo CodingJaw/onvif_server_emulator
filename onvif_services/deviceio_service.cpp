@@ -27,6 +27,7 @@ const std::string GetDigitalInputs{"GetDigitalInputs"};
 const std::string GetDigitalOutputs{"GetDigitalOutputs"};
 const std::string SetRelayOutputState{"SetRelayOutputState"};
 const std::string SetRelayOutputSettings{"SetRelayOutputSettings"};
+const std::string SetDigitalInputState{"SetDigitalInputState"};
 
 namespace pt = boost::property_tree;
 
@@ -241,6 +242,119 @@ public:
 
                 auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
                 envelope_tree.add("s:Body.tmd:SetRelayOutputStateResponse", "");
+
+                pt::ptree root_tree;
+                root_tree.put_child("s:Envelope", envelope_tree);
+
+                std::ostringstream os;
+                pt::write_xml(os, root_tree);
+
+                utility::http::fillResponseWithHeaders(*response, os.str());
+        }
+};
+
+struct SetDigitalInputStateHandler : public OnvifRequestBase
+{
+private:
+        const std::shared_ptr<ServerConfigs> server_configs_;
+
+        static std::optional<bool> to_optional_bool(std::string value)
+        {
+                if (value.empty())
+                        return std::nullopt;
+
+                std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+                        return static_cast<char>(std::tolower(c));
+                });
+
+                if (value == "true" || value == "1" || value == "active" || value == "on")
+                        return true;
+
+                if (value == "false" || value == "0" || value == "inactive" || value == "off")
+                        return false;
+
+                return std::nullopt;
+        }
+
+        void send_invalid_arg_fault(std::shared_ptr<HttpServer::Response> response, const std::string& reason) const
+        {
+                auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
+
+                boost::property_tree::ptree code_node;
+                code_node.add("s:Value", "s:Sender");
+                code_node.add("s:Subcode.s:Value", "ter:InvalidArgVal");
+                envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", reason);
+                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+                pt::ptree root_tree;
+                root_tree.put_child("s:Envelope", envelope_tree);
+
+                std::ostringstream os;
+                pt::write_xml(os, root_tree);
+
+                utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+        }
+
+public:
+        SetDigitalInputStateHandler(const std::map<std::string, std::string>& xs,
+                                                            const std::shared_ptr<pt::ptree>& serviceConfigs,
+                                                            std::shared_ptr<ServerConfigs> server_configs)
+                        : OnvifRequestBase(SetDigitalInputState, auth::SECURITY_LEVELS::ACTUATE, xs, serviceConfigs),
+                                server_configs_(std::move(server_configs))
+        {
+        }
+
+        void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
+        {
+                pt::ptree request_xml_tree;
+                pt::xml_parser::read_xml(request->content, request_xml_tree);
+
+                auto requested_token = exns::find_hierarchy("Envelope.Body.SetDigitalInputState.InputToken", request_xml_tree);
+                auto requested_enabled = exns::find_hierarchy("Envelope.Body.SetDigitalInputState.Enabled", request_xml_tree);
+                auto requested_state = exns::find_hierarchy("Envelope.Body.SetDigitalInputState.LogicalState", request_xml_tree);
+
+                auto enabled_value = to_optional_bool(requested_enabled);
+                if (!requested_enabled.empty() && !enabled_value)
+                {
+                        send_invalid_arg_fault(response, "Invalid Enabled value");
+                        return;
+                }
+
+                auto logical_state_value = to_optional_bool(requested_state);
+                if (!requested_state.empty() && !logical_state_value)
+                {
+                        send_invalid_arg_fault(response, "Invalid LogicalState value");
+                        return;
+                }
+
+                bool token_found = false;
+                for (const auto& input : server_configs_->digital_inputs_)
+                {
+                        if (input->GetToken() == requested_token)
+                        {
+                                token_found = true;
+
+                                if (enabled_value.has_value())
+                                {
+                                        if (*enabled_value)
+                                                input->Enable();
+                                        else
+                                                input->Disable();
+                                }
+
+                                if (logical_state_value.has_value())
+                                        input->SetState(*logical_state_value);
+
+                                break;
+                        }
+                }
+
+                if (!token_found)
+                        throw osrv::invalid_token();
+
+                auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
+                envelope_tree.add("s:Body.tmd:SetDigitalInputStateResponse", "");
 
                 pt::ptree root_tree;
                 root_tree.put_child("s:Envelope", envelope_tree);
@@ -541,6 +655,7 @@ DeviceIOService::DeviceIOService(const std::string& service_uri, const std::stri
         requestHandlers_.push_back(std::make_shared<GetDigitalOutputsHandler>(xml_namespaces_, configs_ptree_, server_configs_));
         requestHandlers_.push_back(std::make_shared<SetRelayOutputStateHandler>(xml_namespaces_, configs_ptree_, server_configs_));
         requestHandlers_.push_back(std::make_shared<SetRelayOutputSettingsHandler>(xml_namespaces_, configs_ptree_, server_configs_));
+        requestHandlers_.push_back(std::make_shared<SetDigitalInputStateHandler>(xml_namespaces_, configs_ptree_, server_configs_));
 }
 
 } // namespace osrv
