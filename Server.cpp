@@ -118,6 +118,69 @@ void Server::init()
                 response->write(SimpleWeb::StatusCode::success_ok, os.str());
         };
 
+        auto io_input_handler = [this](const std::shared_ptr<HttpServer::Response>& response,
+                                       const std::shared_ptr<HttpServer::Request>& request) {
+                namespace pt = boost::property_tree;
+
+                std::stringstream ss;
+                ss << request->content.string();
+
+                pt::ptree request_body;
+                try
+                {
+                        pt::read_json(ss, request_body);
+                }
+                catch (const std::exception&)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid JSON");
+                        return;
+                }
+
+                const auto token = request_body.get_optional<std::string>("token");
+                if (!token)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Missing token");
+                        return;
+                }
+
+                auto input_it = std::find_if(server_configs_->digital_inputs_.begin(), server_configs_->digital_inputs_.end(),
+                        [&token](const std::shared_ptr<IDigitalInput>& input) { return input->GetToken() == *token; });
+
+                if (input_it == server_configs_->digital_inputs_.end())
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_not_found, "Unknown token");
+                        return;
+                }
+
+                if (auto enabled = request_body.get_optional<bool>("enabled"))
+                {
+                        if (*enabled)
+                                (*input_it)->Enable();
+                        else
+                                (*input_it)->Disable();
+                }
+
+                if (auto state = request_body.get_optional<bool>("state"))
+                {
+                        (*input_it)->SetState(*state);
+                }
+
+                pt::ptree input_node;
+                input_node.put("token", (*input_it)->GetToken());
+                input_node.put("state", (*input_it)->GetState());
+                input_node.put("enabled", (*input_it)->IsEnabled());
+
+                pt::ptree root;
+                root.add_child("input", input_node);
+
+                std::ostringstream os;
+                pt::write_json(os, root);
+                response->write(SimpleWeb::StatusCode::success_ok, os.str());
+        };
+
+        http_server_->resource["^/api/io/input$"]["POST"] = io_input_handler;
+        http_server_->resource["^/api/io/input$"]["PUT"] = io_input_handler;
+
         http_server_->resource["^/api/io/output$"]["GET"] = [this](const std::shared_ptr<HttpServer::Response>& response,
                                                                                                     const std::shared_ptr<HttpServer::Request>& /*request*/) {
                 namespace pt = boost::property_tree;

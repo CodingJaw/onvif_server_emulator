@@ -23,6 +23,7 @@ const std::string GetDigitalInputs{"GetDigitalInputs"};
 const std::string GetDigitalOutputs{"GetDigitalOutputs"};
 const std::string SetRelayOutputState{"SetRelayOutputState"};
 const std::string SetRelayOutputSettings{"SetRelayOutputSettings"};
+const std::string SetDigitalInputState{"SetDigitalInputState"};
 
 namespace pt = boost::property_tree;
 
@@ -239,6 +240,78 @@ public:
         }
 };
 
+struct SetDigitalInputStateHandler : public OnvifRequestBase
+{
+private:
+        const std::shared_ptr<ServerConfigs> server_configs_;
+
+        static bool to_bool_state(std::string logical_state)
+        {
+                std::transform(logical_state.begin(), logical_state.end(), logical_state.begin(), [](unsigned char c) {
+                        return static_cast<char>(std::tolower(c));
+                });
+
+                return logical_state == "active" || logical_state == "true" || logical_state == "1";
+        }
+
+public:
+        SetDigitalInputStateHandler(const std::map<std::string, std::string>& xs, const std::shared_ptr<pt::ptree>& serviceConfigs,
+                                                        std::shared_ptr<ServerConfigs> server_configs)
+                        : OnvifRequestBase(SetDigitalInputState, auth::SECURITY_LEVELS::ACTUATE, xs, serviceConfigs),
+                                server_configs_(std::move(server_configs))
+        {
+        }
+
+        void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
+        {
+                pt::ptree request_xml_tree;
+                pt::xml_parser::read_xml(request->content, request_xml_tree);
+
+                auto requested_token = exns::find_hierarchy("Envelope.Body.SetDigitalInputState.InputToken", request_xml_tree);
+                if (requested_token.empty())
+                        requested_token = exns::find_hierarchy("Envelope.Body.SetDigitalInputState.DigitalInputToken", request_xml_tree);
+
+                auto requested_state = exns::find_hierarchy("Envelope.Body.SetDigitalInputState.LogicalState", request_xml_tree);
+                if (requested_state.empty())
+                        requested_state = exns::find_hierarchy("Envelope.Body.SetDigitalInputState.State", request_xml_tree);
+
+                auto requested_enabled = exns::find_hierarchy("Envelope.Body.SetDigitalInputState.Enabled", request_xml_tree);
+
+                if (!requested_token.empty())
+                {
+                        for (const auto& input : server_configs_->digital_inputs_)
+                        {
+                                if (input->GetToken() == requested_token)
+                                {
+                                        if (!requested_state.empty())
+                                                input->SetState(to_bool_state(requested_state));
+
+                                        if (!requested_enabled.empty())
+                                        {
+                                                if (to_bool_state(requested_enabled))
+                                                        input->Enable();
+                                                else
+                                                        input->Disable();
+                                        }
+
+                                        break;
+                                }
+                        }
+                }
+
+                auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
+                envelope_tree.add("s:Body.tmd:SetDigitalInputStateResponse", "");
+
+                pt::ptree root_tree;
+                root_tree.put_child("s:Envelope", envelope_tree);
+
+                std::ostringstream os;
+                pt::write_xml(os, root_tree);
+
+                utility::http::fillResponseWithHeaders(*response, os.str());
+        }
+};
+
 struct SetRelayOutputSettingsHandler : public OnvifRequestBase
 {
 private:
@@ -322,6 +395,7 @@ DeviceIOService::DeviceIOService(const std::string& service_uri, const std::stri
         requestHandlers_.push_back(std::make_shared<GetDigitalOutputsHandler>(xml_namespaces_, configs_ptree_, server_configs_));
         requestHandlers_.push_back(std::make_shared<SetRelayOutputStateHandler>(xml_namespaces_, configs_ptree_, server_configs_));
         requestHandlers_.push_back(std::make_shared<SetRelayOutputSettingsHandler>(xml_namespaces_, configs_ptree_, server_configs_));
+        requestHandlers_.push_back(std::make_shared<SetDigitalInputStateHandler>(xml_namespaces_, configs_ptree_, server_configs_));
 }
 
 } // namespace osrv
