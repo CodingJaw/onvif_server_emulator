@@ -164,17 +164,17 @@ std::shared_ptr<IOnvifService> IOnvifServer::ReplayControlService()
 
 const std::shared_ptr<ILogger> IOnvifServer::Logger() const
 {
-	return logger_;
+        return logger_;
 }
 
-std::shared_ptr<HttpServer> IOnvifServer::HttpServer() const
+std::shared_ptr<HttpServer> IOnvifServer::getHttpServer() const
 {
-	return http_server_;
+        return http_server_;
 }
 
-std::shared_ptr<ServerConfigs> IOnvifServer::ServerConfigs()
+std::shared_ptr<ServerConfigs> IOnvifServer::getServerConfigs()
 {
-	return server_configs_;
+        return server_configs_;
 }
 
 const std::shared_ptr<pt::ptree>& IOnvifServer::ProfilesConfig() const

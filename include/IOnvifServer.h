@@ -57,9 +57,9 @@ public:
 	std::shared_ptr<IOnvifService> RecordingSearchService();
 	std::shared_ptr<IOnvifService> ReplayControlService();
 
-	const std::shared_ptr<ILogger> Logger() const;
-	std::shared_ptr<HttpServer> HttpServer() const;
-	std::shared_ptr<ServerConfigs> ServerConfigs();
+        const std::shared_ptr<ILogger> Logger() const;
+        std::shared_ptr<HttpServer> getHttpServer() const;
+        std::shared_ptr<ServerConfigs> getServerConfigs();
 	const std::shared_ptr<pt::ptree>& ProfilesConfig() const;
 
 	std::string ServerAddress() const;
