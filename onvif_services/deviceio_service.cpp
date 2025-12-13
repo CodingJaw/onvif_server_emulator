@@ -2,6 +2,7 @@
 
 #include "IOnvifServer.h"
 
+#include "../Server.h"
 #include "../onvif/OnvifRequest.h"
 #include "../utility/HttpHelper.h"
 #include "../utility/SoapHelper.h"
@@ -9,9 +10,11 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
+#include <utility>
 
 // List of implemented methods
 const std::string GetVideoSources{"GetVideoSources"};
+const std::string GetRelayOutputs{"GetRelayOutputs"};
 
 namespace pt = boost::property_tree;
 
@@ -20,45 +23,85 @@ namespace osrv
 struct GetVideoSourcesHandler : public OnvifRequestBase
 {
 private:
-	const std::shared_ptr<IOnvifServer> onvif_srv_;
+        const std::shared_ptr<IOnvifServer> onvif_srv_;
 
 public:
-	GetVideoSourcesHandler(const std::map<std::string, std::string>& xs, const std::shared_ptr<pt::ptree>& serviceConfigs,
-												 const std::shared_ptr<IOnvifServer>& srv)
-			: OnvifRequestBase(GetVideoSources, auth::SECURITY_LEVELS::READ_MEDIA, xs, serviceConfigs), onvif_srv_(srv)
-	{
-	}
+        GetVideoSourcesHandler(const std::map<std::string, std::string>& xs, const std::shared_ptr<pt::ptree>& serviceConfigs,
+                                                                                                 const std::shared_ptr<IOnvifServer>& srv)
+                        : OnvifRequestBase(GetVideoSources, auth::SECURITY_LEVELS::READ_MEDIA, xs, serviceConfigs), onvif_srv_(srv)
+        {
+        }
 
-	void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
-	{
-		auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
-		pt::ptree response_node;
+        void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
+        {
+                auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
+                pt::ptree response_node;
 
-		// currently all videosources described in the Media service's config file
-		auto media_service_configs = onvif_srv_->MediaService()->Configs();
-		const auto& videoSources = media_service_configs->get_child("GetVideoSources");
-		for (const auto& [name, config_tree] : videoSources)
-		{
-			response_node.add("tmd:GetVideoSourcesResponse.tmd:Token", config_tree.get<std::string>("token"));
-		}
+                // currently all videosources described in the Media service's config file
+                auto media_service_configs = onvif_srv_->MediaService()->Configs();
+                const auto& videoSources = media_service_configs->get_child("GetVideoSources");
+                for (const auto& [name, config_tree] : videoSources)
+                {
+                        response_node.add("tmd:GetVideoSourcesResponse.tmd:Token", config_tree.get<std::string>("token"));
+                }
 
-		envelope_tree.add_child("s:Body", response_node);
+                envelope_tree.add_child("s:Body", response_node);
 
-		pt::ptree root_tree;
-		root_tree.put_child("s:Envelope", envelope_tree);
+                pt::ptree root_tree;
+                root_tree.put_child("s:Envelope", envelope_tree);
 
-		std::ostringstream os;
-		pt::write_xml(os, root_tree);
+                std::ostringstream os;
+                pt::write_xml(os, root_tree);
 
-		utility::http::fillResponseWithHeaders(*response, os.str());
-	}
+                utility::http::fillResponseWithHeaders(*response, os.str());
+        }
+};
+
+struct GetRelayOutputsHandler : public OnvifRequestBase
+{
+private:
+        const std::shared_ptr<ServerConfigs> server_configs_;
+
+public:
+        GetRelayOutputsHandler(const std::map<std::string, std::string>& xs, const std::shared_ptr<pt::ptree>& serviceConfigs,
+                                                                                 std::shared_ptr<ServerConfigs> server_configs)
+                        : OnvifRequestBase(GetRelayOutputs, auth::SECURITY_LEVELS::READ_MEDIA, xs, serviceConfigs),
+                                server_configs_(std::move(server_configs))
+        {
+        }
+
+        void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
+        {
+                auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
+                pt::ptree response_node;
+
+                for (const auto& output : server_configs_->digital_outputs_)
+                {
+                        pt::ptree relay_node;
+                        relay_node.add("<xmlattr>.token", output->GetToken());
+                        relay_node.add("tt:Properties.tt:State", output->GetState());
+
+                        response_node.add_child("tmd:GetRelayOutputsResponse.tmd:RelayOutputs", relay_node);
+                }
+
+                envelope_tree.add_child("s:Body", response_node);
+
+                pt::ptree root_tree;
+                root_tree.put_child("s:Envelope", envelope_tree);
+
+                std::ostringstream os;
+                pt::write_xml(os, root_tree);
+
+                utility::http::fillResponseWithHeaders(*response, os.str());
+        }
 };
 
 DeviceIOService::DeviceIOService(const std::string& service_uri, const std::string& service_name,
-																 std::shared_ptr<IOnvifServer> srv)
-		: IOnvifService(service_uri, service_name, srv)
+                                                                 std::shared_ptr<IOnvifServer> srv)
+                : IOnvifService(service_uri, service_name, srv)
 {
-	requestHandlers_.push_back(std::make_shared<GetVideoSourcesHandler>(xml_namespaces_, configs_ptree_, srv));
+        requestHandlers_.push_back(std::make_shared<GetVideoSourcesHandler>(xml_namespaces_, configs_ptree_, srv));
+        requestHandlers_.push_back(std::make_shared<GetRelayOutputsHandler>(xml_namespaces_, configs_ptree_, server_configs_));
 }
 
 } // namespace osrv

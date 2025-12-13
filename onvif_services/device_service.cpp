@@ -58,11 +58,14 @@ struct GetCapabilitiesHandler : public OnvifRequestBase
 		};
 
 		auto capabilities_config = service_configs_->get_child("GetCapabilities");
-		pt::ptree capabilities_node;
-		utility::soap::jsonNodeToXml(capabilities_config, capabilities_node, "tt", XAddrProcessor(srv_addr_));
+                pt::ptree capabilities_node;
+                utility::soap::jsonNodeToXml(capabilities_config, capabilities_node, "tt", XAddrProcessor(srv_addr_));
 
-		// here cound of DI is overrided dynamically depending on the actually count of DI in the config file
-		capabilities_node.add("tt:Device.tt:IO.tt:InputConnectors", srv_cfgs_.digital_inputs_.size());
+                // here cound of DI is overrided dynamically depending on the actually count of DI in the config file
+                capabilities_node.add("tt:Device.tt:IO.tt:InputConnectors", srv_cfgs_.digital_inputs_.size());
+                capabilities_node.add("tt:Device.tt:IO.tt:RelayOutputs", srv_cfgs_.digital_outputs_.size());
+                capabilities_node.add("tt:Device.tt:Extension.tt:DeviceIO.tt:RelayOutputs",
+                                     srv_cfgs_.digital_outputs_.size());
 
 		auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
 		envelope_tree.add_child("s:Body.tds:GetCapabilitiesResponse.tds:Capabilities", capabilities_node);
