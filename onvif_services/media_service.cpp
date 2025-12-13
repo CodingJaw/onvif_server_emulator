@@ -673,13 +673,19 @@ struct GetStreamUriHandler : public OnvifRequestBase
 		if (profile_config == profiles_config_list.end())
 			throw std::runtime_error("The media profile does not exist.");
 
-		auto encoder_token = profile_config->second.get<std::string>("VideoEncoderConfiguration");
+                auto encoder_token = profile_config->second.get_optional<std::string>("VideoEncoderConfiguration");
 
-		auto stream_configs_list = service_configs_->get_child("GetStreamUri");
-		auto stream_config_it =
-				std::ranges::find_if(stream_configs_list, [&encoder_token](const pt::ptree::value_type& el) {
-					return el.second.get<std::string>("VideoEncoderToken") == encoder_token;
-				});
+                if (!encoder_token)
+                        encoder_token = profile_config->second.get_optional<std::string>("VideoEncoder");
+
+                if (!encoder_token)
+                        throw std::runtime_error("The media profile does not define a video encoder configuration.");
+
+                auto stream_configs_list = service_configs_->get_child("GetStreamUri");
+                auto stream_config_it =
+                                std::ranges::find_if(stream_configs_list, [&encoder_token](const pt::ptree::value_type& el) {
+                                        return el.second.get<std::string>("VideoEncoderToken") == *encoder_token;
+                                });
 
 		if (stream_config_it == stream_configs_list.end())
 			throw std::runtime_error("Could not find a stream for the requested Media Profile.");
