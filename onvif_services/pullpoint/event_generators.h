@@ -99,14 +99,20 @@ namespace osrv
 			// If the member DigitalInputsList is not initialized, events will not be generated
 			void SetDigitalInputsList(const DigitalInputsList& /*di_list*/);
 
-			// Inherited via IEventGenerator
-			std::deque<NotificationMessage> GenerateSynchronizationEvent() const override;
+                        // Inherited via IEventGenerator
+                        std::deque<NotificationMessage> GenerateSynchronizationEvent() const override;
 
                 protected:
                         void generate_event() override;
 
                 private:
-                        bool state = false;
+                        struct InputState
+                        {
+                                bool enabled;
+                                bool state;
+                        };
+
+                        mutable std::unordered_map<std::string, InputState> known_states_;
                         const DigitalInputsList* di_list_ = nullptr;
                 };
 
