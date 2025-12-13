@@ -187,6 +187,10 @@ void Server::init()
                         (*input_it)->SetState(*state);
                 }
 
+                logger_->Info("REST input update: token=" + (*input_it)->GetToken() +
+                                       ", enabled=" + std::to_string((*input_it)->IsEnabled()) +
+                                       ", state=" + std::to_string((*input_it)->GetState()));
+
                 pt::ptree input_node;
                 input_node.put("token", (*input_it)->GetToken());
                 input_node.put("state", (*input_it)->GetState());
@@ -249,6 +253,10 @@ void Server::init()
                 {
                         (*output_it)->SetState(*state);
                 }
+
+                logger_->Info("REST output update: token=" + (*output_it)->GetToken() +
+                                       ", enabled=" + std::to_string((*output_it)->IsEnabled()) +
+                                       ", state=" + std::to_string((*output_it)->GetState()));
 
                 pt::ptree output_node;
                 output_node.put("token", (*output_it)->GetToken());

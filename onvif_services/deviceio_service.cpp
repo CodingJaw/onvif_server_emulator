@@ -202,6 +202,7 @@ struct SetRelayOutputStateHandler : public OnvifRequestBase
 {
 private:
         const std::shared_ptr<ServerConfigs> server_configs_;
+        const std::shared_ptr<ILogger> log_;
 
         static bool to_bool_state(std::string logical_state)
         {
@@ -214,9 +215,9 @@ private:
 
 public:
         SetRelayOutputStateHandler(const std::map<std::string, std::string>& xs, const std::shared_ptr<pt::ptree>& serviceConfigs,
-                                                           std::shared_ptr<ServerConfigs> server_configs)
+                                                           std::shared_ptr<ServerConfigs> server_configs, std::shared_ptr<ILogger> log)
                         : OnvifRequestBase(SetRelayOutputState, auth::SECURITY_LEVELS::ACTUATE, xs, serviceConfigs),
-                                server_configs_(std::move(server_configs))
+                                server_configs_(std::move(server_configs)), log_(std::move(log))
         {
         }
 
@@ -235,6 +236,11 @@ public:
                                 if (output->GetToken() == requested_token)
                                 {
                                         output->SetState(to_bool_state(requested_state));
+                                        if (log_)
+                                        {
+                                                log_->Info("ONVIF relay state update: token=" + output->GetToken() +
+                                                                   ", state=" + std::to_string(output->GetState()));
+                                        }
                                         break;
                                 }
                         }
@@ -257,6 +263,7 @@ struct SetDigitalInputStateHandler : public OnvifRequestBase
 {
 private:
         const std::shared_ptr<ServerConfigs> server_configs_;
+        const std::shared_ptr<ILogger> log_;
 
         static std::optional<bool> to_optional_bool(std::string value)
         {
@@ -299,9 +306,9 @@ private:
 public:
         SetDigitalInputStateHandler(const std::map<std::string, std::string>& xs,
                                                             const std::shared_ptr<pt::ptree>& serviceConfigs,
-                                                            std::shared_ptr<ServerConfigs> server_configs)
+                                                            std::shared_ptr<ServerConfigs> server_configs, std::shared_ptr<ILogger> log)
                         : OnvifRequestBase(SetDigitalInputState, auth::SECURITY_LEVELS::ACTUATE, xs, serviceConfigs),
-                                server_configs_(std::move(server_configs))
+                                server_configs_(std::move(server_configs)), log_(std::move(log))
         {
         }
 
@@ -346,6 +353,13 @@ public:
                                 if (logical_state_value.has_value())
                                         input->SetState(*logical_state_value);
 
+                                if (log_)
+                                {
+                                        log_->Info("ONVIF digital input update: token=" + input->GetToken() +
+                                                           ", enabled=" + std::to_string(input->IsEnabled()) +
+                                                           ", state=" + std::to_string(input->GetState()));
+                                }
+
                                 break;
                         }
                 }
@@ -370,6 +384,7 @@ struct SetRelayOutputSettingsHandler : public OnvifRequestBase
 {
 private:
         const std::shared_ptr<ServerConfigs> server_configs_;
+        const std::shared_ptr<ILogger> log_;
 
         static std::string to_lower_copy(std::string value)
         {
@@ -504,9 +519,9 @@ private:
 
 public:
         SetRelayOutputSettingsHandler(const std::map<std::string, std::string>& xs, const std::shared_ptr<pt::ptree>& serviceConfigs,
-                                                              std::shared_ptr<ServerConfigs> server_configs)
+                                                              std::shared_ptr<ServerConfigs> server_configs, std::shared_ptr<ILogger> log)
                         : OnvifRequestBase(SetRelayOutputSettings, auth::SECURITY_LEVELS::ACTUATE, xs, serviceConfigs),
-                                server_configs_(std::move(server_configs))
+                                server_configs_(std::move(server_configs)), log_(std::move(log))
         {
         }
 
@@ -619,6 +634,16 @@ public:
                                         if (pulse_time)
                                                 output->SetPulseTime(*pulse_time);
 
+                                        if (log_ && (state.has_value() || enabled.has_value()))
+                                        {
+                                                const auto final_state = output->GetState();
+                                                log_->Info("ONVIF relay settings update: token=" + token +
+                                                                   ", enabled=" + std::to_string(output->IsEnabled()) +
+                                                                   ", target_state=" + std::to_string(state.value_or(final_state)) +
+                                                                   ", delay_ms=" + std::to_string(delay_time ? delay_time->count() : output->GetDelayTime().count()) +
+                                                                   ", pulse_ms=" + std::to_string(pulse_time ? pulse_time->count() : output->GetPulseTime().count()));
+                                        }
+
                                         break;
                                 }
                         }
@@ -653,9 +678,9 @@ DeviceIOService::DeviceIOService(const std::string& service_uri, const std::stri
         requestHandlers_.push_back(std::make_shared<GetRelayOutputsHandler>(xml_namespaces_, configs_ptree_, server_configs_));
         requestHandlers_.push_back(std::make_shared<GetDigitalInputsHandler>(xml_namespaces_, configs_ptree_, server_configs_));
         requestHandlers_.push_back(std::make_shared<GetDigitalOutputsHandler>(xml_namespaces_, configs_ptree_, server_configs_));
-        requestHandlers_.push_back(std::make_shared<SetRelayOutputStateHandler>(xml_namespaces_, configs_ptree_, server_configs_));
-        requestHandlers_.push_back(std::make_shared<SetRelayOutputSettingsHandler>(xml_namespaces_, configs_ptree_, server_configs_));
-        requestHandlers_.push_back(std::make_shared<SetDigitalInputStateHandler>(xml_namespaces_, configs_ptree_, server_configs_));
+        requestHandlers_.push_back(std::make_shared<SetRelayOutputStateHandler>(xml_namespaces_, configs_ptree_, server_configs_, log_));
+        requestHandlers_.push_back(std::make_shared<SetRelayOutputSettingsHandler>(xml_namespaces_, configs_ptree_, server_configs_, log_));
+        requestHandlers_.push_back(std::make_shared<SetDigitalInputStateHandler>(xml_namespaces_, configs_ptree_, server_configs_, log_));
 }
 
 } // namespace osrv
