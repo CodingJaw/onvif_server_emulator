@@ -5,14 +5,18 @@
 #include "../Server.h"
 #include "../onvif/OnvifRequest.h"
 #include "../utility/HttpHelper.h"
+#include "../utility/MediaProfilesManager.h"
 #include "../utility/SoapHelper.h"
 #include "../utility/XmlParser.h"
 
+#include <boost/asio/steady_timer.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 #include <cctype>
 #include <algorithm>
+#include <chrono>
+#include <regex>
 #include <optional>
 #include <utility>
 
@@ -253,6 +257,13 @@ struct SetRelayOutputSettingsHandler : public OnvifRequestBase
 private:
         const std::shared_ptr<ServerConfigs> server_configs_;
 
+        static std::string to_lower_copy(std::string value)
+        {
+                std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+                return value;
+        }
+
         static std::optional<bool> get_bool_property(const pt::ptree& node, const std::vector<std::string>& keys)
         {
                 for (const auto& key : keys)
@@ -262,6 +273,119 @@ private:
                 }
 
                 return std::nullopt;
+        }
+
+        static std::optional<std::string> get_string_property(const pt::ptree& node, const std::vector<std::string>& keys)
+        {
+                for (const auto& key : keys)
+                {
+                        if (auto val = node.get_optional<std::string>(key))
+                                return std::make_optional(*val);
+                }
+
+                return std::nullopt;
+        }
+
+        static std::optional<std::chrono::milliseconds> parse_duration(const std::string& duration)
+        {
+                // Accept ISO 8601 duration in PT#S or PT#.#S format and plain milliseconds as integer
+                static const std::regex iso_duration(R"(^P(T)?(?:(\d+(?:\.\d+)?)S)$)", std::regex_constants::icase);
+                std::smatch match;
+                if (std::regex_match(duration, match, iso_duration))
+                {
+                        double seconds = std::stod(match[2]);
+                        if (seconds < 0)
+                                return std::nullopt;
+
+                        return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(seconds));
+                }
+
+                try
+                {
+                        auto millis = std::stoll(duration);
+                        if (millis < 0)
+                                return std::nullopt;
+
+                        return std::chrono::milliseconds(millis);
+                }
+                catch (const std::exception&)
+                {
+                        return std::nullopt;
+                }
+        }
+
+        void send_invalid_arg_fault(std::shared_ptr<HttpServer::Response> response, const std::string& reason) const
+        {
+            auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
+
+            boost::property_tree::ptree code_node;
+            code_node.add("s:Value", "s:Sender");
+            code_node.add("s:Subcode.s:Value", "ter:InvalidArgVal");
+            envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+            envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", reason);
+            envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+            pt::ptree root_tree;
+            root_tree.put_child("s:Envelope", envelope_tree);
+
+            std::ostringstream os;
+            pt::write_xml(os, root_tree);
+
+            utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+        }
+
+        static RelayMode parse_mode(const std::string& raw_mode)
+        {
+                const auto normalized = to_lower_copy(raw_mode);
+                if (normalized == "bistable")
+                        return RelayMode::Bistable;
+
+                if (normalized == "monostable")
+                        return RelayMode::Monostable;
+
+                throw std::invalid_argument("Unsupported relay mode");
+        }
+
+        static std::optional<bool> parse_idle_state(const std::string& raw_state)
+        {
+                const auto normalized = to_lower_copy(raw_state);
+
+                if (normalized == "open" || normalized == "inactive" || normalized == "false" || normalized == "0")
+                        return false;
+
+                if (normalized == "closed" || normalized == "active" || normalized == "true" || normalized == "1")
+                        return true;
+
+                return std::nullopt;
+        }
+
+        void apply_state_with_delay(const std::shared_ptr<IDigitalOutput>& output, bool state, std::chrono::milliseconds delay,
+                                                                std::optional<std::chrono::milliseconds> pulse_time, bool idle_state)
+        {
+                auto set_state_now = [output, state]() { output->SetState(state); };
+
+                if (delay.count() > 0 && server_configs_->io_context_)
+                {
+                        auto timer = std::make_shared<boost::asio::steady_timer>(*server_configs_->io_context_, delay);
+                        timer->async_wait([set_state_now, timer](const boost::system::error_code& ec) {
+                                if (!ec)
+                                        set_state_now();
+                        });
+                }
+                else
+                {
+                        set_state_now();
+                }
+
+                if (pulse_time && pulse_time->count() > 0 && server_configs_->io_context_)
+                {
+                        auto revert_timer = std::make_shared<boost::asio::steady_timer>(*server_configs_->io_context_,
+                                                                                                                           delay + *pulse_time);
+                        revert_timer->async_wait([output, idle_state, revert_timer](const boost::system::error_code& ec) {
+                                if (!ec)
+                                        output->SetState(idle_state);
+                        });
+                }
         }
 
 public:
@@ -287,13 +411,79 @@ public:
                                                                                          {"tt:Properties.tt:State", "Properties.State", "tmd:Properties.tmd:State"});
                         auto enabled = get_bool_property(relay_node,
                                                                                            {"tt:Properties.tt:Enabled", "Properties.Enabled", "tmd:Properties.tmd:Enabled"});
+                        auto mode_str = get_string_property(relay_node,
+                                                                                          {"tt:Properties.tt:Mode", "Properties.Mode", "tmd:Properties.tmd:Mode"});
+                        auto idle_state_str = get_string_property(relay_node,
+                                                                                                  {"tt:Properties.tt:IdleState", "Properties.IdleState", "tmd:Properties.tmd:IdleState"});
+                        auto delay_time_str = get_string_property(relay_node,
+                                                                                                   {"tt:Properties.tt:DelayTime", "Properties.DelayTime", "tmd:Properties.tmd:DelayTime"});
+                        auto pulse_time_str = get_string_property(relay_node,
+                                                                                                   {"tt:Properties.tt:Extension.tt:PulseTime", "Properties.PulseTime", "tmd:Properties.tmd:PulseTime"});
 
+                        bool token_found = false;
                         for (const auto& output : server_configs_->digital_outputs_)
                         {
                                 if (output->GetToken() == token)
                                 {
+                                        token_found = true;
+                                        auto idle_state = idle_state_str ? parse_idle_state(*idle_state_str) : std::optional<bool>{};
+                                        if (idle_state_str && !idle_state)
+                                        {
+                                                send_invalid_arg_fault(response, "Unsupported IdleState value");
+                                                return;
+                                        }
+
+                                        std::optional<std::chrono::milliseconds> delay_time;
+                                        if (delay_time_str)
+                                        {
+                                                delay_time = parse_duration(*delay_time_str);
+                                                if (!delay_time)
+                                                {
+                                                        send_invalid_arg_fault(response, "Invalid DelayTime value");
+                                                        return;
+                                                }
+                                        }
+
+                                        std::optional<std::chrono::milliseconds> pulse_time;
+                                        if (pulse_time_str)
+                                        {
+                                                pulse_time = parse_duration(*pulse_time_str);
+                                                if (!pulse_time)
+                                                {
+                                                        send_invalid_arg_fault(response, "Invalid PulseTime value");
+                                                        return;
+                                                }
+                                        }
+
+                                        RelayMode mode = output->GetMode();
+                                        if (mode_str)
+                                        {
+                                                try
+                                                {
+                                                        mode = parse_mode(*mode_str);
+                                                }
+                                                catch (const std::invalid_argument&)
+                                                {
+                                                        send_invalid_arg_fault(response, "Unsupported relay Mode");
+                                                        return;
+                                                }
+                                        }
+
+                                        if (mode == RelayMode::Bistable && pulse_time)
+                                        {
+                                                send_invalid_arg_fault(response, "PulseTime is only valid for Monostable relays");
+                                                return;
+                                        }
+
                                         if (state.has_value())
-                                                output->SetState(*state);
+                                        {
+                                                const auto delay = delay_time.value_or(output->GetDelayTime());
+                                                const auto pulse = mode == RelayMode::Monostable
+                                                                                           ? (pulse_time ? pulse_time : std::optional<std::chrono::milliseconds>{output->GetPulseTime()})
+                                                                                           : std::nullopt;
+                                                const auto idle = idle_state.value_or(output->GetIdleState());
+                                                apply_state_with_delay(output, *state, delay, pulse, idle);
+                                        }
 
                                         if (enabled.has_value())
                                         {
@@ -303,9 +493,29 @@ public:
                                                         output->Disable();
                                         }
 
+                                        if (idle_state)
+                                                output->SetIdleState(*idle_state);
+
+                                        if (mode_str)
+                                                output->SetMode(mode);
+
+                                        if (delay_time)
+                                                output->SetDelayTime(*delay_time);
+
+                                        if (pulse_time)
+                                                output->SetPulseTime(*pulse_time);
+
                                         break;
                                 }
                         }
+
+                        if (!token_found)
+                                throw osrv::invalid_token();
+                }
+                else
+                {
+                        send_invalid_arg_fault(response, "RelayOutput element is missing");
+                        return;
                 }
 
                 auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
