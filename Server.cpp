@@ -18,6 +18,8 @@
 #include "MediaFormats.h"
 
 #include "Simple-Web-Server/server_http.hpp"
+#include <optional>
+#include <unordered_map>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/property_tree/json_parser.hpp>
@@ -118,28 +120,83 @@ void Server::init()
                 response->write(SimpleWeb::StatusCode::success_ok, os.str());
         };
 
-        auto io_input_handler = [this](const std::shared_ptr<HttpServer::Response>& response,
-                                       const std::shared_ptr<HttpServer::Request>& request) {
+        auto parse_io_payload = [](const std::string& raw_body)
+                -> std::pair<std::optional<std::string>, std::pair<std::optional<bool>, std::optional<bool>>> {
                 namespace pt = boost::property_tree;
 
-                std::stringstream ss;
-                ss << request->content.string();
+                auto parse_bool = [](const std::string& value) -> std::optional<bool> {
+                        if (value == "true" || value == "1")
+                                return true;
+                        if (value == "false" || value == "0")
+                                return false;
+                        return std::nullopt;
+                };
 
                 pt::ptree request_body;
+                std::stringstream ss;
+                ss << raw_body;
+
                 try
                 {
                         pt::read_json(ss, request_body);
+
+                        auto token = request_body.get_optional<std::string>("token");
+
+                        std::optional<bool> enabled;
+                        if (auto enabled_node = request_body.get_optional<bool>("enabled"))
+                        {
+                                enabled = *enabled_node;
+                        }
+                        else if (auto enabled_str = request_body.get_optional<std::string>("enabled"))
+                        {
+                                enabled = parse_bool(*enabled_str);
+                        }
+
+                        std::optional<bool> state;
+                        if (auto state_node = request_body.get_optional<bool>("state"))
+                        {
+                                state = *state_node;
+                        }
+                        else if (auto state_str = request_body.get_optional<std::string>("state"))
+                        {
+                                state = parse_bool(*state_str);
+                        }
+
+                        return {token, {state, enabled}};
                 }
                 catch (const std::exception&)
                 {
-                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid JSON");
-                        return;
-                }
+                        std::unordered_map<std::string, std::string> kv_pairs;
+                        std::istringstream form_stream(raw_body);
+                        for (std::string pair; std::getline(form_stream, pair, '&');)
+                        {
+                                const auto separator_pos = pair.find('=');
+                                if (separator_pos == std::string::npos)
+                                        continue;
 
-                const auto token = request_body.get_optional<std::string>("token");
+                                auto key = pair.substr(0, separator_pos);
+                                auto value = pair.substr(separator_pos + 1);
+                                kv_pairs[key] = value;
+                        }
+
+                        auto token_it = kv_pairs.find("token");
+                        if (token_it == kv_pairs.end())
+                                return {{}, {}};
+
+                        const auto state = kv_pairs.contains("state") ? parse_bool(kv_pairs["state"]) : std::optional<bool>();
+                        const auto enabled = kv_pairs.contains("enabled") ? parse_bool(kv_pairs["enabled"]) : std::optional<bool>();
+
+                        return {token_it->second, {state, enabled}};
+                }
+        };
+
+        auto io_input_handler = [this, parse_io_payload](const std::shared_ptr<HttpServer::Response>& response,
+                                                        const std::shared_ptr<HttpServer::Request>& request) {
+                const auto [token, parsed_values] = parse_io_payload(request->content.string());
+
                 if (!token)
                 {
-                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Missing token");
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid or missing JSON token field");
                         return;
                 }
 
@@ -152,7 +209,7 @@ void Server::init()
                         return;
                 }
 
-                if (auto enabled = request_body.get_optional<bool>("enabled"))
+                if (auto enabled = parsed_values.second)
                 {
                         if (*enabled)
                                 (*input_it)->Enable();
@@ -160,11 +217,12 @@ void Server::init()
                                 (*input_it)->Disable();
                 }
 
-                if (auto state = request_body.get_optional<bool>("state"))
+                if (auto state = parsed_values.first)
                 {
                         (*input_it)->SetState(*state);
                 }
 
+                namespace pt = boost::property_tree;
                 pt::ptree input_node;
                 input_node.put("token", (*input_it)->GetToken());
                 input_node.put("state", (*input_it)->GetState());
@@ -203,28 +261,13 @@ void Server::init()
                 response->write(SimpleWeb::StatusCode::success_ok, os.str());
         };
 
-        auto io_output_handler = [this](const std::shared_ptr<HttpServer::Response>& response,
-                                        const std::shared_ptr<HttpServer::Request>& request) {
-                namespace pt = boost::property_tree;
+        auto io_output_handler = [this, parse_io_payload](const std::shared_ptr<HttpServer::Response>& response,
+                                                         const std::shared_ptr<HttpServer::Request>& request) {
+                const auto [token, parsed_values] = parse_io_payload(request->content.string());
 
-                std::stringstream ss;
-                ss << request->content.string();
-
-                pt::ptree request_body;
-                try
-                {
-                        pt::read_json(ss, request_body);
-                }
-                catch (const std::exception&)
-                {
-                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid JSON");
-                        return;
-                }
-
-                const auto token = request_body.get_optional<std::string>("token");
                 if (!token)
                 {
-                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Missing token");
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid or missing JSON token field");
                         return;
                 }
 
@@ -237,7 +280,7 @@ void Server::init()
                         return;
                 }
 
-                if (auto enabled = request_body.get_optional<bool>("enabled"))
+                if (auto enabled = parsed_values.second)
                 {
                         if (*enabled)
                                 (*output_it)->Enable();
@@ -245,11 +288,12 @@ void Server::init()
                                 (*output_it)->Disable();
                 }
 
-                if (auto state = request_body.get_optional<bool>("state"))
+                if (auto state = parsed_values.first)
                 {
                         (*output_it)->SetState(*state);
                 }
 
+                namespace pt = boost::property_tree;
                 pt::ptree output_node;
                 output_node.put("token", (*output_it)->GetToken());
                 output_node.put("state", (*output_it)->GetState());
