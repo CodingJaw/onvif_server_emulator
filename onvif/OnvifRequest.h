@@ -6,6 +6,7 @@
 
 #include <../Simple-Web-Server/server_http.hpp>
 
+#include <stdexcept>
 #include <string>
 #include <map>
 
@@ -29,7 +30,7 @@ namespace osrv
 		virtual void operator()(std::shared_ptr<HttpServer::Response> response,
 			std::shared_ptr<HttpServer::Request> request)
 		{
-			throw std::exception("Method is not implemented");
+                        throw std::runtime_error("Method is not implemented");
 		}
 
 		std::string name() const

@@ -7,9 +7,9 @@
 
 #include "utility/HttpDigestHelper.h"
 
-#include "onvif_services\discovery_service.h"
-#include "onvif_services\physical_components\IDigitalInput.h"
-#include "onvif_services\physical_components\IDigitalOutput.h"
+#include "onvif_services/discovery_service.h"
+#include "onvif_services/physical_components/IDigitalInput.h"
+#include "onvif_services/physical_components/IDigitalOutput.h"
 
 #include <boost/asio/io_context.hpp>
 

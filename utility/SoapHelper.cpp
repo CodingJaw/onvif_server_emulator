@@ -1,6 +1,6 @@
 #include "SoapHelper.h"
 
-#include <boost\property_tree\ptree.hpp>
+#include <boost/property_tree/ptree.hpp>
 
 #include <map>
 
@@ -12,9 +12,9 @@ namespace soap
 {
 
 // The helper function returns a pthree object formatted by Soap rules with passed xml namespaces
-boost::property_tree::ptree utility::soap::getEnvelopeTree(const std::map<std::string, std::string>& xmlns)
+pt::ptree getEnvelopeTree(const std::map<std::string, std::string>& xmlns)
 {
-	boost::property_tree::ptree envelope_tree;
+        pt::ptree envelope_tree;
 
 	envelope_tree.put("s:Header", "");
 

@@ -5,6 +5,7 @@
 #include "../Simple-Web-Server/server_http.hpp"
 
 #include <iostream>
+#include <stdexcept>
 #include <string>
 
 #define OVERLOAD_REQUEST_HANDLER                                                                                       \
@@ -86,7 +87,7 @@ struct RequestHandlerBase
 	virtual void operator()(std::shared_ptr<osrv::HttpServer::Response> response,
 													std::shared_ptr<osrv::HttpServer::Request> request)
 	{
-		throw std::exception("Method is not implemented");
+            throw std::runtime_error("Method is not implemented");
 	}
 
 	std::string get_name() const

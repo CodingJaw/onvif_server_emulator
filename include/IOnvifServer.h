@@ -60,7 +60,7 @@ public:
         const std::shared_ptr<ILogger> Logger() const;
         std::shared_ptr<HttpServer> getHttpServer() const;
         std::shared_ptr<ServerConfigs> getServerConfigs();
-	const std::shared_ptr<pt::ptree>& ProfilesConfig() const;
+        const std::shared_ptr<pt::ptree>& ProfilesConfig() const;
 
 	std::string ServerAddress() const;
 
