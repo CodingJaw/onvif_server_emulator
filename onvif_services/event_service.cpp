@@ -39,6 +39,16 @@ static std::map<std::string, std::string> XML_NAMESPACES;
 static std::string CONFIGS_PATH; // will be init with the service initialization
 static const std::string EVENT_CONFIGS_FILE = "event.config";
 
+osrv::event::NotificationsManager* osrv::event::GetNotificationsManager()
+{
+        return notifications_manager.get();
+}
+
+const std::map<std::string, std::string>& osrv::event::GetEventXmlNamespaces()
+{
+        return XML_NAMESPACES;
+}
+
 // List of implemented methods of Events service port
 const std::string GetEventProperties = "GetEventProperties";
 
