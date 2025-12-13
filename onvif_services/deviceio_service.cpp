@@ -88,6 +88,7 @@ public:
                         pt::ptree relay_node;
                         relay_node.add("<xmlattr>.token", output->GetToken());
                         relay_node.add("tt:Properties.tt:State", output->GetState());
+                        relay_node.add("tt:Properties.tt:Enabled", output->IsEnabled());
 
                         response_node.add_child("tmd:GetRelayOutputsResponse.tmd:RelayOutputs", relay_node);
                 }
