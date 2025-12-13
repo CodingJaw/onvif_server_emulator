@@ -21,7 +21,9 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
+#include <algorithm>
 #include <string>
+#include <sstream>
 
 static const std::string COMMON_CONFIGS_NAME = "common.config";
 
@@ -57,16 +59,84 @@ Server::~Server()
 
 void Server::init()
 {
-	http_server_->default_resource["GET"] = [](std::shared_ptr<HttpServer::Response> response,
-																						 std::shared_ptr<HttpServer::Request> request) {
-		response->write(SimpleWeb::StatusCode::client_error_bad_request, "Could not open path " + request->path);
-	};
+        http_server_->default_resource["GET"] = [](std::shared_ptr<HttpServer::Response> response,
+                                                  std::shared_ptr<HttpServer::Request> request) {
+                response->write(SimpleWeb::StatusCode::client_error_bad_request, "Could not open path " + request->path);
+        };
 
-	http_server_->default_resource["POST"] = [this](std::shared_ptr<HttpServer::Response> response,
-																									std::shared_ptr<HttpServer::Request> request) {
-		logger_->Warn("The server could not handle a request:" + request->method + " " + request->path);
-		response->write(SimpleWeb::StatusCode::client_error_bad_request, "Bad request");
-	};
+        http_server_->default_resource["POST"] = [this](std::shared_ptr<HttpServer::Response> response,
+                                                        std::shared_ptr<HttpServer::Request> request) {
+                logger_->Warn("The server could not handle a request:" + request->method + " " + request->path);
+                response->write(SimpleWeb::StatusCode::client_error_bad_request, "Bad request");
+        };
+
+
+        http_server_->resource["/api/io/input"]["GET"] = [this](std::shared_ptr<HttpServer::Response> response,
+                                                                                std::shared_ptr<HttpServer::Request> /*request*/) {
+                namespace pt = boost::property_tree;
+
+                pt::ptree inputs_node;
+                for (const auto& di : server_configs_->digital_inputs_)
+                {
+                        pt::ptree node;
+                        node.put("token", di->GetToken());
+                        node.put("enabled", di->IsEnabled());
+                        node.put("state", di->GetState());
+
+                        inputs_node.push_back(std::make_pair("", node));
+                }
+
+                std::stringstream ss;
+                pt::write_json(ss, inputs_node);
+
+                response->write(SimpleWeb::StatusCode::success_ok, ss.str());
+        };
+
+        http_server_->resource["/api/io/input/([^/]+)/([^/]+)"]["POST"] =
+                        [this](std::shared_ptr<HttpServer::Response> response,
+                               std::shared_ptr<HttpServer::Request> request) {
+                namespace pt = boost::property_tree;
+
+                const auto& token = request->path_match[1];
+                const auto state = request->path_match[2];
+
+                auto di_it = std::find_if(server_configs_->digital_inputs_.cbegin(), server_configs_->digital_inputs_.cend(),
+                                                                                 [&token](const auto& di) { return di->GetToken() == token; });
+
+                if (di_it == server_configs_->digital_inputs_.cend())
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_not_found, "Unknown digital input token");
+                        return;
+                }
+
+                auto& di = *di_it;
+
+                if (state == "active")
+                {
+                        di->SetState(true);
+                        di->Enable();
+                }
+                else if (state == "inactive")
+                {
+                        di->SetState(false);
+                        di->Disable();
+                }
+                else
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid state");
+                        return;
+                }
+
+                pt::ptree node;
+                node.put("token", di->GetToken());
+                node.put("enabled", di->IsEnabled());
+                node.put("state", di->GetState());
+
+                std::stringstream ss;
+                pt::write_json(ss, node);
+
+                response->write(SimpleWeb::StatusCode::success_ok, ss.str());
+        };
 
 	http_server_->on_error = [this](std::shared_ptr<HttpServer::Request> request, const SimpleWeb::error_code& ec) {
 		// if (ec != SimpleWeb::errc::operation_canceled && SimpleWeb::error_code::)
