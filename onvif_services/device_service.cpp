@@ -14,6 +14,12 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
+#include <boost/algorithm/string.hpp>
+
+#include <chrono>
+#include <ctime>
+#include <optional>
+#include <iomanip>
 
 // List of implemented methods
 const std::string GetCapabilities = "GetCapabilities";
@@ -23,14 +29,47 @@ const std::string GetRelayOutputs = "GetRelayOutputs";
 const std::string GetServices = "GetServices";
 const std::string GetScopes = "GetScopes";
 const std::string GetSystemDateAndTime = "GetSystemDateAndTime";
+const std::string SetSystemDateAndTime = "SetSystemDateAndTime";
 
 namespace pt = boost::property_tree;
 
 namespace osrv
 {
+namespace
+{
+struct SystemDateTimeState
+{
+        std::string date_time_type{"NTP"};
+        bool daylight_savings{false};
+        bool use_utc{true};
+        std::optional<std::chrono::system_clock::time_point> utc_time{};
+};
+
+SystemDateTimeState& system_time_state()
+{
+        static SystemDateTimeState state;
+        return state;
+}
+
+std::tm to_utc_tm(const std::chrono::system_clock::time_point& tp)
+{
+        const auto time_val = std::chrono::system_clock::to_time_t(tp);
+        std::tm utc_tm{};
+        gmtime_r(&time_val, &utc_tm);
+        return utc_tm;
+}
+
+std::string tm_to_string(const std::tm& tm)
+{
+        std::ostringstream ss;
+        ss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+        return ss.str();
+}
+} // namespace
+
 struct GetCapabilitiesHandler : public OnvifRequestBase
 {
-	GetCapabilitiesHandler(const std::map<std::string, std::string>& xs, const std::shared_ptr<pt::ptree>& configs,
+        GetCapabilitiesHandler(const std::map<std::string, std::string>& xs, const std::shared_ptr<pt::ptree>& configs,
 												 osrv::ServerConfigs& server_cfg, const std::string& server_address)
 			: OnvifRequestBase(GetCapabilities, auth::SECURITY_LEVELS::PRE_AUTH, xs, configs), srv_cfgs_(server_cfg),
 				srv_addr_(server_address)
@@ -270,19 +309,219 @@ struct GetSystemDateAndTimeHandler : public OnvifRequestBase
 
 	void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
 	{
-		auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
+                auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
 
-		envelope_tree.put("s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime.tt:DateTimeType", "NTP");
-		envelope_tree.put("s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime.tt:DaylightSavings", "false");
+                const auto& state = system_time_state();
+                const auto time_point = state.utc_time.value_or(std::chrono::system_clock::now());
+                const auto tm = to_utc_tm(time_point);
 
-		pt::ptree root_tree;
-		root_tree.put_child("s:Envelope", envelope_tree);
+                envelope_tree.put("s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime.tt:DateTimeType",
+                                  state.date_time_type);
+                envelope_tree.put("s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime.tt:DaylightSavings",
+                                  state.daylight_savings ? "true" : "false");
+
+                envelope_tree.put(
+                                "s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime.tt:UTCDateTime.tt:Time.tt:Hour",
+                                tm.tm_hour);
+                envelope_tree.put("s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime.tt:UTCDateTime.tt:Time.tt:Minute",
+                                  tm.tm_min);
+                envelope_tree.put("s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime.tt:UTCDateTime.tt:Time.tt:Second",
+                                  tm.tm_sec);
+                envelope_tree.put(
+                                "s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime.tt:UTCDateTime.tt:Date.tt:Year",
+                                tm.tm_year + 1900);
+                envelope_tree.put(
+                                "s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime.tt:UTCDateTime.tt:Date.tt:Month",
+                                tm.tm_mon + 1);
+                envelope_tree.put(
+                                "s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime.tt:UTCDateTime.tt:Date.tt:Day",
+                                tm.tm_mday);
+
+                pt::ptree root_tree;
+                root_tree.put_child("s:Envelope", envelope_tree);
 
 		std::ostringstream os;
 		pt::write_xml(os, root_tree);
 
 		utility::http::fillResponseWithHeaders(*response, os.str());
-	}
+        }
+};
+
+struct SetSystemDateAndTimeHandler : public OnvifRequestBase
+{
+        SetSystemDateAndTimeHandler(const std::map<std::string, std::string>& xs, const std::shared_ptr<pt::ptree>& configs,
+                                    const std::shared_ptr<ILogger>& logger)
+                        : OnvifRequestBase(SetSystemDateAndTime, auth::SECURITY_LEVELS::ACTUATE, xs, configs), log_(logger)
+        {
+        }
+
+        void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
+        {
+                auto request_str = request->content.string();
+                std::istringstream is(request_str);
+
+                pt::ptree xml_tree;
+                try
+                {
+                        pt::xml_parser::read_xml(is, xml_tree);
+                }
+                catch (const pt::xml_parser_error&)
+                {
+                        send_fault(response, "Unable to parse XML payload");
+                        return;
+                }
+
+                const auto date_time_type = exns::find_hierarchy("Envelope.Body.SetSystemDateAndTime.DateTimeType", xml_tree);
+                if (date_time_type.empty())
+                {
+                        send_fault(response, "DateTimeType is required");
+                        return;
+                }
+
+                if (!boost::iequals(date_time_type, "NTP") && !boost::iequals(date_time_type, "Manual"))
+                {
+                        send_fault(response, "Unsupported DateTimeType: " + date_time_type);
+                        return;
+                }
+
+                const auto daylight = exns::find_hierarchy("Envelope.Body.SetSystemDateAndTime.DaylightSavings", xml_tree);
+                if (daylight.empty())
+                {
+                        send_fault(response, "DaylightSavings is required");
+                        return;
+                }
+
+                const auto daylight_saving_enabled = parse_bool(daylight, false);
+                const auto has_utc = !exns::find_hierarchy("Envelope.Body.SetSystemDateAndTime.UTCDateTime", xml_tree).empty();
+
+                std::optional<std::chrono::system_clock::time_point> requested_time;
+
+                if (boost::iequals(date_time_type, "Manual"))
+                {
+                        if (!has_utc)
+                        {
+                                send_fault(response, "Manual mode requires UTCDateTime");
+                                return;
+                        }
+
+                        auto parsed = parse_utc_time(xml_tree);
+                        if (!parsed)
+                        {
+                                send_fault(response, "UTCDateTime is missing required fields");
+                                return;
+                        }
+
+                        requested_time = parsed.value();
+                }
+
+                auto& state = system_time_state();
+                state.date_time_type = date_time_type;
+                state.daylight_savings = daylight_saving_enabled;
+                state.use_utc = has_utc;
+                state.utc_time = requested_time.value_or(std::chrono::system_clock::now());
+
+                const auto requested_tm = to_utc_tm(state.utc_time.value());
+                if (log_)
+                {
+                        log_->Debug("SetSystemDateAndTime requested at " + request_time_string(xml_tree));
+                        log_->Debug("System time updated to " + tm_to_string(requested_tm));
+                }
+
+                auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
+                pt::ptree response_node;
+                envelope_tree.add_child("s:Body.tds:SetSystemDateAndTimeResponse", response_node);
+
+                pt::ptree root_tree;
+                root_tree.put_child("s:Envelope", envelope_tree);
+
+                std::ostringstream os;
+                pt::write_xml(os, root_tree);
+
+                utility::http::fillResponseWithHeaders(*response, os.str());
+        }
+
+private:
+        void send_fault(std::shared_ptr<HttpServer::Response> response, const std::string& reason) const
+        {
+                auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
+
+                boost::property_tree::ptree code_node;
+                code_node.add("s:Value", "s:Sender");
+                code_node.add("s:Subcode.s:Value", "ter:InvalidArgVal");
+                envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", reason);
+                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+                pt::ptree root_tree;
+                root_tree.put_child("s:Envelope", envelope_tree);
+
+                std::ostringstream os;
+                pt::write_xml(os, root_tree);
+
+                utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+        }
+
+        static bool parse_bool(const std::string& value, bool default_value)
+        {
+                if (value.empty())
+                        return default_value;
+
+                if (value == "1" || boost::iequals(value, "true"))
+                        return true;
+                if (value == "0" || boost::iequals(value, "false"))
+                        return false;
+
+                return default_value;
+        }
+
+        static std::optional<std::chrono::system_clock::time_point> parse_utc_time(const pt::ptree& xml_tree)
+        {
+                try
+                {
+                        const auto year = std::stoi(
+                                        exns::find_hierarchy("Envelope.Body.SetSystemDateAndTime.UTCDateTime.Date.Year", xml_tree));
+                        const auto month = std::stoi(
+                                        exns::find_hierarchy("Envelope.Body.SetSystemDateAndTime.UTCDateTime.Date.Month", xml_tree));
+                        const auto day = std::stoi(
+                                        exns::find_hierarchy("Envelope.Body.SetSystemDateAndTime.UTCDateTime.Date.Day", xml_tree));
+                        const auto hour = std::stoi(
+                                        exns::find_hierarchy("Envelope.Body.SetSystemDateAndTime.UTCDateTime.Time.Hour", xml_tree));
+                        const auto minute = std::stoi(
+                                        exns::find_hierarchy("Envelope.Body.SetSystemDateAndTime.UTCDateTime.Time.Minute", xml_tree));
+                        const auto second = std::stoi(
+                                        exns::find_hierarchy("Envelope.Body.SetSystemDateAndTime.UTCDateTime.Time.Second", xml_tree));
+
+                        std::tm tm{};
+                        tm.tm_year = year - 1900;
+                        tm.tm_mon = month - 1;
+                        tm.tm_mday = day;
+                        tm.tm_hour = hour;
+                        tm.tm_min = minute;
+                        tm.tm_sec = second;
+
+                        const auto time_val = timegm(&tm);
+                        if (time_val == -1)
+                                return std::nullopt;
+
+                        return std::chrono::system_clock::from_time_t(time_val);
+                }
+                catch (const std::exception&)
+                {
+                        return std::nullopt;
+                }
+        }
+
+        static std::string request_time_string(const pt::ptree& xml_tree)
+        {
+                auto parsed_time = parse_utc_time(xml_tree);
+                if (!parsed_time)
+                        return "<invalid time>";
+
+                const auto tm = to_utc_tm(parsed_time.value());
+                return tm_to_string(tm);
+        }
+
+        const std::shared_ptr<ILogger> log_;
 };
 
 DeviceService::DeviceService(const std::string& service_uri, const std::string& service_name,
@@ -293,10 +532,11 @@ DeviceService::DeviceService(const std::string& service_uri, const std::string& 
 																																			*srv->GetServerConfigs(), srv->ServerAddress()));
 	requestHandlers_.push_back(std::make_shared<GetDeviceInformationHandler>(xml_namespaces_, configs_ptree_));
 	requestHandlers_.push_back(std::make_shared<GetNetworkInterfacesHandler>(xml_namespaces_, configs_ptree_));
-	requestHandlers_.push_back(std::make_shared<GetRelayOutputsHandler>(xml_namespaces_, configs_ptree_));
-	requestHandlers_.push_back(
-			std::make_shared<GetServicesHandler>(xml_namespaces_, configs_ptree_, srv->ServerAddress()));
-	requestHandlers_.push_back(std::make_shared<GetScopesHandler>(xml_namespaces_, configs_ptree_));
-	requestHandlers_.push_back(std::make_shared<GetSystemDateAndTimeHandler>(xml_namespaces_, configs_ptree_));
+        requestHandlers_.push_back(std::make_shared<GetRelayOutputsHandler>(xml_namespaces_, configs_ptree_));
+        requestHandlers_.push_back(
+                        std::make_shared<GetServicesHandler>(xml_namespaces_, configs_ptree_, srv->ServerAddress()));
+        requestHandlers_.push_back(std::make_shared<GetScopesHandler>(xml_namespaces_, configs_ptree_));
+        requestHandlers_.push_back(std::make_shared<GetSystemDateAndTimeHandler>(xml_namespaces_, configs_ptree_));
+        requestHandlers_.push_back(std::make_shared<SetSystemDateAndTimeHandler>(xml_namespaces_, configs_ptree_, log_));
 }
 } // namespace osrv
