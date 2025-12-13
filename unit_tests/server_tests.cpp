@@ -2,6 +2,7 @@
 
 #include "../Server.h"
 #include "../onvif_services/physical_components/IDigitalInput.h"
+#include "../onvif_services/physical_components/IDigitalOutput.h"
 
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
@@ -38,15 +39,26 @@ BOOST_AUTO_TEST_CASE(read_server_configs_func)
 	BOOST_TEST(admin.password == "a1");
 	BOOST_TEST(true == (admin.type == USER_TYPE::ADMIN));
 
-	auto oper = actual_system_users.at(1);
-	BOOST_TEST(oper.login == "o");
-	BOOST_TEST(oper.password == "o1");
-	BOOST_TEST(true == (oper.type == USER_TYPE::OPERATOR));
+        auto oper = actual_system_users.at(1);
+        BOOST_TEST(oper.login == "o");
+        BOOST_TEST(oper.password == "o1");
+        BOOST_TEST(true == (oper.type == USER_TYPE::OPERATOR));
 
-	auto user = actual_system_users.at(2);
-	BOOST_TEST(user.login == "u");
-	BOOST_TEST(user.password == "u1");
-	BOOST_TEST(true == (user.type == USER_TYPE::USER));
+        auto user = actual_system_users.at(2);
+        BOOST_TEST(user.login == "u");
+        BOOST_TEST(user.password == "u1");
+        BOOST_TEST(true == (user.type == USER_TYPE::USER));
+
+        BOOST_TEST(2 == actual_configs->digital_inputs_.size());
+        BOOST_TEST("digital_input0" == actual_configs->digital_inputs_[0]->GetToken());
+        BOOST_TEST(true == actual_configs->digital_inputs_[0]->IsEnabled());
+        BOOST_TEST(false == actual_configs->digital_inputs_[0]->GetState());
+        BOOST_TEST(false == actual_configs->digital_inputs_[1]->IsEnabled());
+
+        BOOST_TEST(2 == actual_configs->digital_outputs_.size());
+        BOOST_TEST("digital_output0" == actual_configs->digital_outputs_[0]->GetToken());
+        BOOST_TEST(true == actual_configs->digital_outputs_[0]->GetState());
+        BOOST_TEST(false == actual_configs->digital_outputs_[1]->IsEnabled());
 }
 
 BOOST_AUTO_TEST_CASE(read_digital_inputs_func)

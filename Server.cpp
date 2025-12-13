@@ -5,6 +5,7 @@
 #include "../onvif_services/imaging_service.h"
 #include "../onvif_services/media2_service.h"
 #include "../onvif_services/media_service.h"
+#include "../onvif_services/physical_components/IDigitalOutput.h"
 #include "../onvif_services/physical_components/IDigitalInput.h"
 #include "../onvif_services/ptz_service.h"
 #include "../onvif_services/recording_search_service.h"
@@ -21,6 +22,9 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 
 static const std::string COMMON_CONFIGS_NAME = "common.config";
@@ -75,21 +79,65 @@ void Server::init()
 		//}
 	};
 
-	auto configs_dir = configs_path_ + "/";
-	server_configs_ = read_server_configs(configs_dir + COMMON_CONFIGS_NAME);
+        auto configs_dir = configs_path_ + "/";
+        server_configs_ = read_server_configs(configs_dir + COMMON_CONFIGS_NAME);
 
-	http_server_->config.address = server_configs_->ipv4_address_;
-	http_server_->config.port = std::stoi(server_configs_->http_port_);
+        http_server_->config.address = server_configs_->ipv4_address_;
+        http_server_->config.port = std::stoi(server_configs_->http_port_);
 
 	if (server_configs_->enabled_http_port_forwarding)
 		logger_->Info("HTTP port forwarding simulated on port: " + std::to_string(server_configs_->forwarded_http_port));
 
-	if (server_configs_->enabled_rtsp_port_forwarding)
-		logger_->Info("RTSP port forwarding simulated on port: " + std::to_string(server_configs_->forwarded_rtsp_port));
+        if (server_configs_->enabled_rtsp_port_forwarding)
+                logger_->Info("RTSP port forwarding simulated on port: " + std::to_string(server_configs_->forwarded_rtsp_port));
 
-	server_configs_->digest_session_ = std::make_shared<utility::digest::DigestSessionImpl>();
-	// TODO: here is the same list is copied into digest_session, although it's already stored in server_configs
-	server_configs_->digest_session_->set_users_list(server_configs_->system_users_);
+        server_configs_->digest_session_ = std::make_shared<utility::digest::DigestSessionImpl>();
+        // TODO: here is the same list is copied into digest_session, although it's already stored in server_configs
+        server_configs_->digest_session_->set_users_list(server_configs_->system_users_);
+
+        http_server_->resource["^/api/io/input$"]["GET"] = [this](const std::shared_ptr<HttpServer::Response>& response,
+                                                                                                   const std::shared_ptr<HttpServer::Request>& /*request*/) {
+                namespace pt = boost::property_tree;
+                pt::ptree root;
+                pt::ptree inputs;
+
+                for (const auto& di : server_configs_->digital_inputs_)
+                {
+                        pt::ptree di_node;
+                        di_node.put("token", di->GetToken());
+                        di_node.put("state", di->GetState());
+                        di_node.put("enabled", di->IsEnabled());
+                        inputs.push_back(std::make_pair("", di_node));
+                }
+
+                root.add_child("inputs", inputs);
+
+                std::ostringstream os;
+                pt::write_json(os, root);
+                response->write(SimpleWeb::StatusCode::success_ok, os.str());
+        };
+
+        http_server_->resource["^/api/io/output$"]["GET"] = [this](const std::shared_ptr<HttpServer::Response>& response,
+                                                                                                    const std::shared_ptr<HttpServer::Request>& /*request*/) {
+                namespace pt = boost::property_tree;
+                pt::ptree root;
+                pt::ptree outputs;
+
+                for (const auto& output : server_configs_->digital_outputs_)
+                {
+                        pt::ptree output_node;
+                        output_node.put("token", output->GetToken());
+                        output_node.put("state", output->GetState());
+                        output_node.put("enabled", output->IsEnabled());
+                        outputs.push_back(std::make_pair("", output_node));
+                }
+
+                root.add_child("outputs", outputs);
+
+                std::ostringstream os;
+                pt::write_json(os, root);
+                response->write(SimpleWeb::StatusCode::success_ok, os.str());
+        };
 
 	profiles_config_ = osrv::ServiceConfigs("media_profiles", configs_dir);
 
@@ -172,8 +220,8 @@ void Server::run()
 std::shared_ptr<ServerConfigs> read_server_configs(const std::string& config_path)
 {
 
-	std::ifstream configs_file(config_path);
-	if (!configs_file.is_open())
+        std::ifstream configs_file(config_path);
+        if (!configs_file.is_open())
 		throw std::runtime_error("Could not read a config file");
 
 	namespace pt = boost::property_tree;
@@ -212,22 +260,60 @@ std::shared_ptr<ServerConfigs> read_server_configs(const std::string& config_pat
 
 	read_configs->network_delay_simulation_ = configs_tree.get<unsigned short>("networkDelaySimulation.milliseconds");
 
-	read_configs->multichannel_enabled_ = configs_tree.get<bool>("multichannelSimulation.enabled");
-	read_configs->channels_count_ = configs_tree.get<unsigned char>("multichannelSimulation.channelCount");
+        read_configs->multichannel_enabled_ = configs_tree.get<bool>("multichannelSimulation.enabled");
+        read_configs->channels_count_ = configs_tree.get<unsigned char>("multichannelSimulation.channelCount");
 
-	if (configs_tree.get<bool>("fileStreaming.enabled"))
-	{
-		read_configs->rtsp_streaming_file_ = configs_tree.get<std::string>("fileStreaming.filePath");
-	}
+        if (configs_tree.get<bool>("fileStreaming.enabled"))
+        {
+                read_configs->rtsp_streaming_file_ = configs_tree.get<std::string>("fileStreaming.filePath");
+        }
 
-	return read_configs;
+        if (auto digital_inputs_node = configs_tree.get_child_optional("DigitalInputs"))
+        {
+                read_configs->digital_inputs_ = read_digital_inputs(*digital_inputs_node);
+        }
+
+        if (auto digital_outputs_node = configs_tree.get_child_optional("DigitalOutputs"))
+        {
+                read_configs->digital_outputs_ = read_digital_outputs(*digital_outputs_node);
+        }
+
+        namespace fs = std::filesystem;
+        const fs::path config_fs_path(config_path);
+        const auto device_config_path = config_fs_path.parent_path() / "device.config";
+        std::ifstream device_config_file(device_config_path.string());
+
+        if (device_config_file.is_open())
+        {
+                pt::ptree device_configs_tree;
+                pt::read_json(device_config_file, device_configs_tree);
+
+                if (auto device_digital_inputs = device_configs_tree.get_child_optional("DigitalInputs"))
+                {
+                        auto digital_inputs = read_digital_inputs(*device_digital_inputs);
+                        read_configs->digital_inputs_.insert(read_configs->digital_inputs_.end(), digital_inputs.begin(), digital_inputs.end());
+                }
+
+                if (auto device_digital_outputs = device_configs_tree.get_child_optional("DigitalOutputs"))
+                {
+                        auto digital_outputs = read_digital_outputs(*device_digital_outputs);
+                        read_configs->digital_outputs_.insert(read_configs->digital_outputs_.end(), digital_outputs.begin(), digital_outputs.end());
+                }
+        }
+
+        if (!device_config_file.is_open() && !fs::exists(device_config_path))
+        {
+                // ignore missing device config silently; digital IO can be configured directly in common config
+        }
+
+        return read_configs;
 }
 
 DigitalInputsList read_digital_inputs(const boost::property_tree::ptree& configs_node)
 {
-	std::vector<std::shared_ptr<IDigitalInput>> result;
-	for (const auto& t : configs_node)
-	{
+        std::vector<std::shared_ptr<IDigitalInput>> result;
+        for (const auto& t : configs_node)
+        {
 		auto di = std::make_shared<SimpleDigitalInputImpl>(
 				SimpleDigitalInputImpl(t.second.get<std::string>("Token"), t.second.get<bool>("InitialState")));
 
@@ -243,7 +329,31 @@ DigitalInputsList read_digital_inputs(const boost::property_tree::ptree& configs
 		result.push_back(di);
 	}
 
-	return result;
+        return result;
+}
+
+DigitalOutputsList read_digital_outputs(const boost::property_tree::ptree& configs_node)
+{
+        std::vector<std::shared_ptr<IDigitalOutput>> result;
+        for (const auto& t : configs_node)
+        {
+                auto output = std::make_shared<SimpleDigitalOutputImpl>(
+                                SimpleDigitalOutputImpl(t.second.get<std::string>("Token"),
+                                                        t.second.get<bool>("InitialState", false)));
+
+                if (t.second.get<bool>("Enabled", true))
+                {
+                        output->Enable();
+                }
+                else
+                {
+                        output->Disable();
+                }
+
+                result.push_back(output);
+        }
+
+        return result;
 }
 
 AUTH_SCHEME str_to_auth(const std::string& scheme)
