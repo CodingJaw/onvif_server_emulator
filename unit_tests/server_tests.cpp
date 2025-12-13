@@ -2,6 +2,7 @@
 
 #include "../Server.h"
 #include "../onvif_services/physical_components/IDigitalInput.h"
+#include "../onvif_services/physical_components/IDigitalOutput.h"
 
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
@@ -51,7 +52,7 @@ BOOST_AUTO_TEST_CASE(read_server_configs_func)
 
 BOOST_AUTO_TEST_CASE(read_digital_inputs_func)
 {
-	const std::string config_example =
+        const std::string config_example =
 			R"(
 			{
 				"DigitalInputs":
@@ -78,7 +79,41 @@ BOOST_AUTO_TEST_CASE(read_digital_inputs_func)
 	auto di0 = result[0];
 	BOOST_TEST("digital_input0" == di0->GetToken());
 	BOOST_TEST(true == di0->IsEnabled());
-	auto di1 = result[1];
-	BOOST_TEST("digital_input1" == di1->GetToken());
-	BOOST_TEST(false == di1->IsEnabled());
+        auto di1 = result[1];
+        BOOST_TEST("digital_input1" == di1->GetToken());
+        BOOST_TEST(false == di1->IsEnabled());
+}
+
+BOOST_AUTO_TEST_CASE(read_digital_outputs_func)
+{
+        const std::string config_example =
+                        R"(
+                        {
+                                "DigitalOutputs":
+                                [
+                                        {
+                                                "Token": "digital_output0",
+                                                "GenerateEvent": true,
+                                                "InitialState":false
+                                        },
+                                        {
+                                                "Token": "digital_output1",
+                                                "GenerateEvent": false,
+                                                "InitialState":true
+                                        }
+                                ]
+                        }
+                )";
+        std::stringstream ss(config_example);
+        pt::ptree configs_node;
+        pt::json_parser::read_json(ss, configs_node);
+
+        auto result = osrv::read_digital_outputs(configs_node.get_child("DigitalOutputs"));
+        BOOST_TEST(2 == result.size());
+        auto dout0 = result[0];
+        BOOST_TEST("digital_output0" == dout0->GetToken());
+        BOOST_TEST(true == dout0->IsEnabled());
+        auto dout1 = result[1];
+        BOOST_TEST("digital_output1" == dout1->GetToken());
+        BOOST_TEST(false == dout1->IsEnabled());
 }

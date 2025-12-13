@@ -6,6 +6,7 @@
 #include "../onvif_services/media2_service.h"
 #include "../onvif_services/media_service.h"
 #include "../onvif_services/physical_components/IDigitalInput.h"
+#include "../onvif_services/physical_components/IDigitalOutput.h"
 #include "../onvif_services/ptz_service.h"
 #include "../onvif_services/recording_search_service.h"
 #include "include/onvif_services/service_configs.h"
@@ -88,6 +89,27 @@ void Server::init()
 
                 std::stringstream ss;
                 pt::write_json(ss, inputs_node);
+
+                response->write(SimpleWeb::StatusCode::success_ok, ss.str());
+        };
+
+        http_server_->resource["/api/io/output"]["GET"] = [this](std::shared_ptr<HttpServer::Response> response,
+                                                                                 std::shared_ptr<HttpServer::Request> /*request*/) {
+                namespace pt = boost::property_tree;
+
+                pt::ptree outputs_node;
+                for (const auto& dout : server_configs_->digital_outputs_)
+                {
+                        pt::ptree node;
+                        node.put("token", dout->GetToken());
+                        node.put("enabled", dout->IsEnabled());
+                        node.put("state", dout->GetState());
+
+                        outputs_node.push_back(std::make_pair("", node));
+                }
+
+                std::stringstream ss;
+                pt::write_json(ss, outputs_node);
 
                 response->write(SimpleWeb::StatusCode::success_ok, ss.str());
         };
@@ -285,12 +307,22 @@ std::shared_ptr<ServerConfigs> read_server_configs(const std::string& config_pat
 	read_configs->multichannel_enabled_ = configs_tree.get<bool>("multichannelSimulation.enabled");
 	read_configs->channels_count_ = configs_tree.get<unsigned char>("multichannelSimulation.channelCount");
 
-	if (configs_tree.get<bool>("fileStreaming.enabled"))
-	{
-		read_configs->rtsp_streaming_file_ = configs_tree.get<std::string>("fileStreaming.filePath");
-	}
+        if (configs_tree.get<bool>("fileStreaming.enabled"))
+        {
+                read_configs->rtsp_streaming_file_ = configs_tree.get<std::string>("fileStreaming.filePath");
+        }
 
-	return read_configs;
+        if (auto digital_inputs_node = configs_tree.get_child_optional("DigitalInputs"))
+        {
+                read_configs->digital_inputs_ = read_digital_inputs(*digital_inputs_node);
+        }
+
+        if (auto digital_outputs_node = configs_tree.get_child_optional("DigitalOutputs"))
+        {
+                read_configs->digital_outputs_ = read_digital_outputs(*digital_outputs_node);
+        }
+
+        return read_configs;
 }
 
 DigitalInputsList read_digital_inputs(const boost::property_tree::ptree& configs_node)
@@ -313,7 +345,30 @@ DigitalInputsList read_digital_inputs(const boost::property_tree::ptree& configs
 		result.push_back(di);
 	}
 
-	return result;
+        return result;
+}
+
+DigitalOutputsList read_digital_outputs(const boost::property_tree::ptree& configs_node)
+{
+        std::vector<std::shared_ptr<IDigitalOutput>> result;
+        for (const auto& t : configs_node)
+        {
+                auto dout = std::make_shared<SimpleDigitalOutputImpl>(
+                                SimpleDigitalOutputImpl(t.second.get<std::string>("Token"), t.second.get<bool>("InitialState")));
+
+                if (t.second.get<bool>("GenerateEvent", true))
+                {
+                        dout->Enable();
+                }
+                else
+                {
+                        dout->Disable();
+                }
+
+                result.push_back(dout);
+        }
+
+        return result;
 }
 
 AUTH_SCHEME str_to_auth(const std::string& scheme)

@@ -9,6 +9,7 @@
 
 #include "onvif_services/discovery_service.h"
 #include "onvif_services/physical_components/IDigitalInput.h"
+#include "onvif_services/physical_components/IDigitalOutput.h"
 
 #include <boost/asio/io_context.hpp>
 
@@ -41,11 +42,12 @@ struct ServerConfigs
 
 	std::vector<osrv::auth::UserAccount> system_users_;
 	AUTH_SCHEME auth_scheme_{};
-	std::shared_ptr<utility::digest::IDigestSession> digest_session_;
+        std::shared_ptr<utility::digest::IDigestSession> digest_session_;
 
-	DigitalInputsList digital_inputs_;
+        DigitalInputsList digital_inputs_;
+        DigitalOutputsList digital_outputs_;
 
-	std::shared_ptr<boost::asio::io_context> io_context_;
+        std::shared_ptr<boost::asio::io_context> io_context_;
 
 	// milliseconds
 	unsigned short network_delay_simulation_ = 0;
@@ -86,4 +88,5 @@ private:
 std::shared_ptr<ServerConfigs> read_server_configs(const std::string& /*config_path*/);
 
 DigitalInputsList read_digital_inputs(const boost::property_tree::ptree& /*config_node*/);
+DigitalOutputsList read_digital_outputs(const boost::property_tree::ptree& /*config_node*/);
 } // namespace osrv
