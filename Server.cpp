@@ -21,6 +21,9 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
+#include <algorithm>
+#include <regex>
+#include <sstream>
 #include <string>
 
 static const std::string COMMON_CONFIGS_NAME = "common.config";
@@ -57,17 +60,88 @@ Server::~Server()
 
 void Server::init()
 {
+
 	http_server_->default_resource["GET"] = [](std::shared_ptr<HttpServer::Response> response,
-																						 std::shared_ptr<HttpServer::Request> request) {
+	                std::shared_ptr<HttpServer::Request> request) {
 		response->write(SimpleWeb::StatusCode::client_error_bad_request, "Could not open path " + request->path);
 	};
 
 	http_server_->default_resource["POST"] = [this](std::shared_ptr<HttpServer::Response> response,
-																									std::shared_ptr<HttpServer::Request> request) {
+	                std::shared_ptr<HttpServer::Request> request) {
 		logger_->Warn("The server could not handle a request:" + request->method + " " + request->path);
 		response->write(SimpleWeb::StatusCode::client_error_bad_request, "Bad request");
 	};
 
+	http_server_->resource["^/api/io/input$"]["GET"] = [this](
+	                std::shared_ptr<HttpServer::Response> response,
+	                std::shared_ptr<HttpServer::Request> /*request*/) {
+		pt::ptree inputs;
+		for (const auto& di : server_configs_->digital_inputs_)
+		{
+			pt::ptree item;
+			item.put("token", di->GetToken());
+			item.put("enabled", di->IsEnabled());
+			item.put("state", di->GetState());
+			inputs.push_back(std::make_pair("", item));
+		}
+
+		pt::ptree root;
+		root.add_child("inputs", inputs);
+
+		std::ostringstream os;
+		pt::write_json(os, root);
+		response->write(SimpleWeb::StatusCode::success_ok, os.str());
+	};
+
+	http_server_->resource["^/api/io/input/([^/]+)/([^/]+)$"]["POST"] =
+	                [this](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) {
+		std::regex path_regex("^/api/io/input/([^/]+)/([^/]+)$");
+		std::smatch matches;
+		if (!std::regex_match(request->path, matches, path_regex) || matches.size() != 3)
+		{
+			response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid path");
+			return;
+		}
+
+		const auto token = matches[1].str();
+		const auto state_segment = matches[2].str();
+
+		auto di_it = std::find_if(server_configs_->digital_inputs_.begin(), server_configs_->digital_inputs_.end(),
+		                        [&token](const std::shared_ptr<IDigitalInput>& di) { return di->GetToken() == token; });
+
+		if (di_it == server_configs_->digital_inputs_.end())
+		{
+			response->write(SimpleWeb::StatusCode::client_error_not_found, "Unknown digital input token");
+			return;
+		}
+
+		auto& di = *di_it;
+
+		if (state_segment == "active")
+		{
+			di->Enable();
+			di->SetState(true);
+		}
+		else if (state_segment == "inactive")
+		{
+			di->Disable();
+			di->SetState(false);
+		}
+		else
+		{
+			response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid state value");
+			return;
+		}
+
+		pt::ptree updated;
+		updated.put("token", di->GetToken());
+		updated.put("enabled", di->IsEnabled());
+		updated.put("state", di->GetState());
+
+		std::ostringstream os;
+		pt::write_json(os, updated);
+		response->write(SimpleWeb::StatusCode::success_ok, os.str());
+	};
 	http_server_->on_error = [this](std::shared_ptr<HttpServer::Request> request, const SimpleWeb::error_code& ec) {
 		// if (ec != SimpleWeb::errc::operation_canceled && SimpleWeb::error_code::)
 		//{
