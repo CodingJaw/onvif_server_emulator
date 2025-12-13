@@ -8,6 +8,7 @@
 #include "../utility/HttpHelper.h"
 #include "../utility/XmlParser.h"
 #include "event_service.h"
+#include "pullpoint/pull_point.h"
 #include "../utility/MediaProfilesManager.h"
 #include "../utility/SoapHelper.h"
 #include "media2_service.h"
