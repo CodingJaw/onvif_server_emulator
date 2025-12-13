@@ -22,6 +22,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -66,11 +67,11 @@ void Server::init()
 		response->write(SimpleWeb::StatusCode::client_error_bad_request, "Could not open path " + request->path);
 	};
 
-	http_server_->default_resource["POST"] = [this](std::shared_ptr<HttpServer::Response> response,
-																									std::shared_ptr<HttpServer::Request> request) {
-		logger_->Warn("The server could not handle a request:" + request->method + " " + request->path);
-		response->write(SimpleWeb::StatusCode::client_error_bad_request, "Bad request");
-	};
+        http_server_->default_resource["POST"] = [this](std::shared_ptr<HttpServer::Response> response,
+                                                                                                                               std::shared_ptr<HttpServer::Request> request) {
+                logger_->Warn("The server could not handle a request:" + request->method + " " + request->path);
+                response->write(SimpleWeb::StatusCode::client_error_bad_request, "Bad request");
+        };
 
 	http_server_->on_error = [this](std::shared_ptr<HttpServer::Request> request, const SimpleWeb::error_code& ec) {
 		// if (ec != SimpleWeb::errc::operation_canceled && SimpleWeb::error_code::)
@@ -139,7 +140,70 @@ void Server::init()
                 response->write(SimpleWeb::StatusCode::success_ok, os.str());
         };
 
-	profiles_config_ = osrv::ServiceConfigs("media_profiles", configs_dir);
+        auto io_output_handler = [this](const std::shared_ptr<HttpServer::Response>& response,
+                                        const std::shared_ptr<HttpServer::Request>& request) {
+                namespace pt = boost::property_tree;
+
+                std::stringstream ss;
+                ss << request->content.string();
+
+                pt::ptree request_body;
+                try
+                {
+                        pt::read_json(ss, request_body);
+                }
+                catch (const std::exception&)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid JSON");
+                        return;
+                }
+
+                const auto token = request_body.get_optional<std::string>("token");
+                if (!token)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Missing token");
+                        return;
+                }
+
+                auto output_it = std::find_if(server_configs_->digital_outputs_.begin(), server_configs_->digital_outputs_.end(),
+                        [&token](const std::shared_ptr<IDigitalOutput>& output) { return output->GetToken() == *token; });
+
+                if (output_it == server_configs_->digital_outputs_.end())
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_not_found, "Unknown token");
+                        return;
+                }
+
+                if (auto enabled = request_body.get_optional<bool>("enabled"))
+                {
+                        if (*enabled)
+                                (*output_it)->Enable();
+                        else
+                                (*output_it)->Disable();
+                }
+
+                if (auto state = request_body.get_optional<bool>("state"))
+                {
+                        (*output_it)->SetState(*state);
+                }
+
+                pt::ptree output_node;
+                output_node.put("token", (*output_it)->GetToken());
+                output_node.put("state", (*output_it)->GetState());
+                output_node.put("enabled", (*output_it)->IsEnabled());
+
+                pt::ptree root;
+                root.add_child("output", output_node);
+
+                std::ostringstream os;
+                pt::write_json(os, root);
+                response->write(SimpleWeb::StatusCode::success_ok, os.str());
+        };
+
+        http_server_->resource["^/api/io/output$"]["POST"] = io_output_handler;
+        http_server_->resource["^/api/io/output$"]["PUT"] = io_output_handler;
+
+        profiles_config_ = osrv::ServiceConfigs("media_profiles", configs_dir);
 
 	DeviceService()->Run();
 	DeviceIOService()->Run();
