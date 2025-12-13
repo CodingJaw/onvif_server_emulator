@@ -116,18 +116,16 @@ void Server::init()
                 response->write(SimpleWeb::StatusCode::success_ok, os.str());
         };
 
-	http_server_->resource["^/api/io/input/([^/]+)/([^/]+)$"]["POST"] =
-	                [this](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) {
-		std::regex path_regex("^/api/io/input/([^/]+)/([^/]+)$");
-		std::smatch matches;
-		if (!std::regex_match(request->path, matches, path_regex) || matches.size() != 3)
-		{
-			response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid path");
-			return;
-		}
+        http_server_->resource["^/api/io/input/([^/]+)/([^/]+)/?$"]["POST"] =
+                        [this](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) {
+                if (request->path_match.size() < 3)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid path");
+                        return;
+                }
 
-		const auto token = matches[1].str();
-		const auto state_segment = matches[2].str();
+                const auto token = request->path_match[1];
+                const auto state_segment = request->path_match[2];
 
 		auto di_it = std::find_if(server_configs_->digital_inputs_.begin(), server_configs_->digital_inputs_.end(),
 		                        [&token](const std::shared_ptr<IDigitalInput>& di) { return di->GetToken() == token; });
