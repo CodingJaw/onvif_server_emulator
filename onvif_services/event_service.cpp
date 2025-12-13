@@ -241,6 +241,16 @@ struct GetEventPropertiesHandler : public utility::http::RequestHandlerBase
 				// response_tree.add("wstop:TopicSet.tns1:Device.<xmlattr>.wstop:topic", "true");
 			}
 
+			{ // DO properties
+				StringPairsList_t source_props = {{"RelayToken", "tt:ReferenceToken"}};
+				StringPairsList_t data_props = {{"LogicalState", "xsd:boolean"}};
+				EventPropertiesSerializer serializer(EVENT_CONFIGS_TREE.get<std::string>("DigitalOutputs.Topic"),
+
+source_props, data_props);
+
+				response_tree.add_child("wstop:TopicSet." + serializer.Path(), serializer.Ptree());
+			}
+
 			{ // Motion alarm
 				StringPairsList_t source_props = {{"Source", "tt:ReferenceToken"}};
 				StringPairsList_t data_props = {{"State", "xsd:boolean"}};
@@ -453,7 +463,17 @@ void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_ins
 	di_event_generator->SetDigitalInputsList(server_configs->digital_inputs_);
 	notifications_manager->AddGenerator(di_event_generator);
 
-	// add motion alarms generator
+        if (!server_configs->digital_outputs_.empty())
+        {
+                auto do_event_generator = std::make_shared<osrv::event::DOutputEventGenerator>(
+                                EVENT_CONFIGS_TREE.get<int>("DigitalOutputs.EventGenerationTimeout"),
+                                EVENT_CONFIGS_TREE.get<std::string>("DigitalOutputs.Topic"),
+                                notifications_manager->GetIoContext(), *log_);
+                do_event_generator->SetDigitalOutputsList(server_configs->digital_outputs_);
+                notifications_manager->AddGenerator(do_event_generator);
+        }
+
+        // add motion alarms generator
 	if (EVENT_CONFIGS_TREE.get<bool>("MotionAlarm.GenerateEvents"))
 	{
 		auto ma_event_generator = std::make_shared<osrv::event::MotionAlarmEventGenerator>(

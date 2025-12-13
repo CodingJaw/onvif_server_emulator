@@ -43,11 +43,11 @@ namespace osrv
 			return result;
 		}
 
-		void DInputEventGenerator::generate_event()
-		{
-			TRACE_LOG(logger_);
+                void DInputEventGenerator::generate_event()
+                {
+                        TRACE_LOG(logger_);
 
-			if (!di_list_)
+                        if (!di_list_)
 				return;
 
 			for (const auto& di : *di_list_)
@@ -66,8 +66,92 @@ namespace osrv
 				nm.data_value = di->InvertState() ? "true" : "false";
 
 				event_signal_(nm);
-			}
-		}
+                        }
+                }
+
+                DOutputEventGenerator::DOutputEventGenerator(int interval, const std::string& topic,
+                        boost::asio::io_context& io_context, const ILogger& logger_)
+                        : IEventGenerator(interval, topic, io_context, logger_)
+                {
+                }
+
+                void DOutputEventGenerator::SetDigitalOutputsList(const DigitalOutputsList& do_list)
+                {
+                        do_list_ = &do_list;
+
+                        known_states_.clear();
+
+                        for (const auto& output : do_list)
+                        {
+                                known_states_[output->GetToken()] = OutputState{ output->IsEnabled(), output->GetState() };
+                        }
+                }
+
+                std::deque<NotificationMessage> DOutputEventGenerator::GenerateSynchronizationEvent() const
+                {
+                        TRACE_LOG(logger_);
+
+                        if (!do_list_)
+                                return {};
+
+                        std::deque<NotificationMessage> result;
+                        for (const auto& output : *do_list_)
+                        {
+                                const auto state = OutputState{ output->IsEnabled(), output->GetState() };
+                                known_states_[output->GetToken()] = state;
+
+                                NotificationMessage nm;
+                                nm.topic = notifications_topic_;
+                                nm.utc_time = utility::datetime::system_utc_datetime();
+                                nm.property_operation = "Initialized";
+                                nm.source_item_descriptions.push_back({"RelayToken", output->GetToken()});
+                                nm.data_name = "LogicalState";
+                                nm.data_value = state.enabled && state.state ? "true" : "false";
+
+                                result.push_back(nm);
+                        }
+
+                        return result;
+                }
+
+                void DOutputEventGenerator::generate_event()
+                {
+                        TRACE_LOG(logger_);
+
+                        if (!do_list_)
+                                return;
+
+                        for (const auto& output : *do_list_)
+                        {
+                                const auto current_state = OutputState{ output->IsEnabled(), output->GetState() };
+                                auto it = known_states_.find(output->GetToken());
+
+                                bool changed = false;
+                                if (it == known_states_.end())
+                                {
+                                        changed = true;
+                                        known_states_[output->GetToken()] = current_state;
+                                }
+                                else if (it->second.enabled != current_state.enabled || it->second.state != current_state.state)
+                                {
+                                        changed = true;
+                                        it->second = current_state;
+                                }
+
+                                if (!changed)
+                                        continue;
+
+                                NotificationMessage nm;
+                                nm.topic = notifications_topic_;
+                                nm.utc_time = utility::datetime::system_utc_datetime();
+                                nm.property_operation = "Changed";
+                                nm.source_item_descriptions.push_back({"RelayToken", output->GetToken()});
+                                nm.data_name = "LogicalState";
+                                nm.data_value = current_state.enabled && current_state.state ? "true" : "false";
+
+                                event_signal_(nm);
+                        }
+                }
 
 		MotionAlarmEventGenerator::MotionAlarmEventGenerator(const std::string& source_token,
 			int interval, const std::string& topic,
