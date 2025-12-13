@@ -42,6 +42,8 @@ public:
 
         void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
         {
+                static_cast<void>(request);
+
                 auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
                 pt::ptree response_node;
 
@@ -80,6 +82,8 @@ public:
 
         void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
         {
+                static_cast<void>(request);
+
                 auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
                 pt::ptree response_node;
 
@@ -120,6 +124,8 @@ public:
 
         void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
         {
+                static_cast<void>(request);
+
                 auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
                 pt::ptree response_node;
 
@@ -160,6 +166,8 @@ public:
 
         void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
         {
+                static_cast<void>(request);
+
                 auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
                 pt::ptree response_node;
 
