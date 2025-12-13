@@ -15,6 +15,8 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 
+#include <algorithm>
+
 namespace pt = boost::property_tree;
 
 // a list of implemented methods
@@ -164,10 +166,12 @@ public:
 		const auto& vsConfigJson =
 				m_profilesMgr.GetConfigByToken(vsToken, osrv::CONFIGURATION_ENUMERATION[osrv::VIDEOSOURCE]);
 
-		const auto& compatibleNodes = vsConfigJson.get_child("CompatiblePtzNodes");
-		std::vector<std::string> compatibleNodeTokens;
-		std::ranges::transform(compatibleNodes, std::back_inserter(compatibleNodeTokens),
-													 [](auto t) { return t.second.get_value<std::string>(); });
+                const auto& compatibleNodes = vsConfigJson.get_child("CompatiblePtzNodes");
+                std::vector<std::string> compatibleNodeTokens;
+                for (const auto& t : compatibleNodes)
+                {
+                        compatibleNodeTokens.push_back(t.second.get_value<std::string>());
+                }
 
 		const auto& allPtzConfigs =
 				m_profilesMgr.ReaderWriter()->ConfigsTree().get_child(osrv::CONFIGURATION_ENUMERATION[osrv::PTZ]);
@@ -175,9 +179,10 @@ public:
 		auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
 		for (const auto& [key, node] : allPtzConfigs)
 		{
-			if (std::ranges::find_if(compatibleNodeTokens, [&node](const auto& nodeToken) {
-						return node.get<std::string>("NodeToken") == nodeToken;
-					}) == compatibleNodeTokens.end())
+                        if (std::find_if(compatibleNodeTokens.begin(), compatibleNodeTokens.end(),
+                                        [&node](const auto& nodeToken) {
+                                                return node.get<std::string>("NodeToken") == nodeToken;
+                                        }) == compatibleNodeTokens.end())
 				continue; // current ptz configuration is not compatible with the requested media profile
 
 			pt::ptree xmlPtzConfig;
@@ -296,10 +301,10 @@ public:
 		auto usedNodeTokenInPtzConfig = ptzConfig.get<std::string>("NodeToken", {});
 
 		auto ptzNodesConfigJson = service_configs_->get_child("Nodes", {});
-		const auto ptzNodeConfigJsonIt =
-				std::ranges::find_if(ptzNodesConfigJson, [&usedNodeTokenInPtzConfig](const auto& it) {
-					return it.second.get<std::string>("token") == usedNodeTokenInPtzConfig;
-				});
+                const auto ptzNodeConfigJsonIt = std::find_if(ptzNodesConfigJson.begin(), ptzNodesConfigJson.end(),
+                                [&usedNodeTokenInPtzConfig](const auto& it) {
+                                        return it.second.template get<std::string>("token") == usedNodeTokenInPtzConfig;
+                                });
 
 		if (ptzNodeConfigJsonIt == ptzNodesConfigJson.end())
 		{
@@ -308,10 +313,11 @@ public:
 															 usedNodeTokenInPtzConfig);
 		}
 
-		auto ptzConfigOptions = m_profilesMgr.ReaderWriter()->ConfigsTree().get_child("PTZConfigurationOptions");
-		auto currentPtzConfigOptionsIt = std::ranges::find_if(ptzConfigOptions, [&requestedToken](const auto& p) {
-			return p.second.get<std::string>("token") == requestedToken;
-		});
+                auto ptzConfigOptions = m_profilesMgr.ReaderWriter()->ConfigsTree().get_child("PTZConfigurationOptions");
+                auto currentPtzConfigOptionsIt = std::find_if(ptzConfigOptions.begin(), ptzConfigOptions.end(),
+                        [&requestedToken](const auto& p) {
+                                return p.second.template get<std::string>("token") == requestedToken;
+                        });
 		if (currentPtzConfigOptionsIt == ptzConfigOptions.end())
 		{
 			// this normally should not happen!! it means your configuraitons files invalid!!
@@ -458,9 +464,10 @@ struct GetNodeHandler : public OnvifRequestBase
 			requestedToken = exns::find_hierarchy("Envelope.Body.GetNode.NodeToken", xml_tree);
 		}
 
-		auto nodeConfigIt = std::ranges::find_if(nodes_config, [&requestedToken](const auto nodesIt) {
-			return nodesIt.second.get<std::string>("token") == requestedToken;
-		});
+                auto nodeConfigIt = std::find_if(nodes_config.begin(), nodes_config.end(),
+                        [&requestedToken](const auto& nodesIt) {
+                                return nodesIt.second.template get<std::string>("token") == requestedToken;
+                        });
 
 		if (nodeConfigIt == nodes_config.end())
 			throw osrv::no_entity();
@@ -509,13 +516,15 @@ public:
 		auto& ptzConfigsJson =
 				m_profilesMgr.ReaderWriter()->ConfigsTree().get_child(CONFIGURATION_ENUMERATION[CONFIGURATION_TYPE::PTZ]);
 
-		auto configIt = std::ranges::find_if(
-				ptzConfigsJson, [&requestedToken](auto& p) { return p.second.get<std::string>("token") == requestedToken; });
+                auto configIt = std::find_if(ptzConfigsJson.begin(), ptzConfigsJson.end(),
+                                [&requestedToken](auto& p) {
+                                        return p.second.template get<std::string>("token") == requestedToken;
+                                });
 
-		if (configIt == ptzConfigsJson.end())
-		{
-			throw osrv::no_config{};
-		}
+                if (configIt == ptzConfigsJson.end())
+                {
+                        throw osrv::no_config{};
+                }
 
 		auto& ptzNodeJson = configIt->second;
 

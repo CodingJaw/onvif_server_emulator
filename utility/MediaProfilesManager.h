@@ -32,75 +32,75 @@ enum CONFIGURATION_TYPE : int
 class well_formed : public std::exception
 {
 public:
-	const char* what() const override
-	{
-		return "XML Well-formed violation occurred.";
-	}
+        const char* what() const noexcept override
+        {
+                return "XML Well-formed violation occurred.";
+        }
 };
 
 
 class no_such_profile : public std::exception
 {
 public:
-	const char* what() const override
-	{
-		return "No such profile";
-	}
+        const char* what() const noexcept override
+        {
+                return "No such profile";
+        }
 };
 
 class invalid_token : public std::exception
 {
 public:
-	const char* what() const override
-	{
-		return "No such configuration token";
-	}
+        const char* what() const noexcept override
+        {
+                return "No such configuration token";
+        }
 };
 
 class invalid_config_type : public std::exception
 {
 public:
-	const char* what() const override
-	{
-		return "No such configuration type";
-	}
+        const char* what() const noexcept override
+        {
+                return "No such configuration type";
+        }
 };
 
 class deletion_of_fixed_profile : public std::exception
 {
 public:
-	const char* what() const override
-	{
-		return "A fixed Profile cannot be deleted";
-	}
+        const char* what() const noexcept override
+        {
+                return "A fixed Profile cannot be deleted";
+        }
 };
 
 class no_entity : public std::exception
 {
 public:
-	const char* what() const override
-	{
-		return "No such PTZ node on the device";
-	}
+        const char* what() const noexcept override
+        {
+                return "No such PTZ node on the device";
+        }
 };
 
 class incomplete_configuration : public std::exception
 {
 public:
-	const char* what() const override
-	{
-		return "The specified media profile does contain either unused sources or encoder configurations without a "
-					 "corresponding source.";
-	}
+        const char* what() const noexcept override
+        {
+                return "The specified media profile does contain either unused sources or encoder configurations without a "
+                                         "corresponding source.";
+        }
 };
 
 class no_config : public std::exception
 {
 public:
-	const char* what() const override
-	{
-		return "The requested configuration does not exist.";
-	}
+        const char* what() const noexcept override
+        {
+                return "The requested configuration does not exist.";
+        }
 };
 
 } // namespace osrv
