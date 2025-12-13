@@ -120,8 +120,9 @@ void Server::init()
                 response->write(SimpleWeb::StatusCode::success_ok, os.str());
         };
 
-        auto parse_io_payload = [](const std::string& raw_body)
-                -> std::pair<std::optional<std::string>, std::pair<std::optional<bool>, std::optional<bool>>> {
+        using ParsedIoPayload = std::pair<std::optional<std::string>, std::pair<std::optional<bool>, std::optional<bool>>>;
+
+        auto parse_io_payload = [](const std::string& raw_body) -> ParsedIoPayload {
                 namespace pt = boost::property_tree;
 
                 auto parse_bool = [](const std::string& value) -> std::optional<bool> {
@@ -162,7 +163,7 @@ void Server::init()
                                 state = parse_bool(*state_str);
                         }
 
-                        return {token, {state, enabled}};
+                        return ParsedIoPayload{token, std::make_pair(state, enabled)};
                 }
                 catch (const std::exception&)
                 {
@@ -181,12 +182,12 @@ void Server::init()
 
                         auto token_it = kv_pairs.find("token");
                         if (token_it == kv_pairs.end())
-                                return {{}, {}};
+                                return ParsedIoPayload{};
 
                         const auto state = kv_pairs.contains("state") ? parse_bool(kv_pairs["state"]) : std::optional<bool>();
                         const auto enabled = kv_pairs.contains("enabled") ? parse_bool(kv_pairs["enabled"]) : std::optional<bool>();
 
-                        return {token_it->second, {state, enabled}};
+                        return ParsedIoPayload{std::make_optional(token_it->second), std::make_pair(state, enabled)};
                 }
         };
 
