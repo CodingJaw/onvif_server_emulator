@@ -2,9 +2,11 @@
 
 #include "../Logger.h"
 #include "../onvif_services/physical_components/IDigitalInput.h"
+#include "../onvif_services/physical_components/IDigitalOutput.h"
 
 #include <functional>
 #include <deque>
+#include <unordered_map>
 
 #include <boost/signals2.hpp>
 #include <boost/asio/io_context.hpp>
@@ -88,11 +90,11 @@ namespace osrv
 			const ILogger& logger_;
 		};
 
-		class DInputEventGenerator : public IEventGenerator
-		{
-		public:
-			DInputEventGenerator(int /*interval*/, const std::string& /*topic*/,
-				boost::asio::io_context& /*io_context*/, const ILogger& /*logger_*/);
+                class DInputEventGenerator : public IEventGenerator
+                {
+                public:
+                        DInputEventGenerator(int /*interval*/, const std::string& /*topic*/,
+                                boost::asio::io_context& /*io_context*/, const ILogger& /*logger_*/);
 
 			// If the member DigitalInputsList is not initialized, events will not be generated
 			void SetDigitalInputsList(const DigitalInputsList& /*di_list*/);
@@ -100,13 +102,38 @@ namespace osrv
 			// Inherited via IEventGenerator
 			std::deque<NotificationMessage> GenerateSynchronizationEvent() const override;
 
-		protected:
-			void generate_event() override;
+                protected:
+                        void generate_event() override;
 
-		private:
-			bool state = false;
-			const DigitalInputsList* di_list_ = nullptr;
-		};
+                private:
+                        bool state = false;
+                        const DigitalInputsList* di_list_ = nullptr;
+                };
+
+                class DOutputEventGenerator : public IEventGenerator
+                {
+                public:
+                        DOutputEventGenerator(int /*interval*/, const std::string& /*topic*/,
+                                boost::asio::io_context& /*io_context*/, const ILogger& /*logger_*/);
+
+                        void SetDigitalOutputsList(const DigitalOutputsList& /*do_list*/);
+
+                        // Inherited via IEventGenerator
+                        std::deque<NotificationMessage> GenerateSynchronizationEvent() const override;
+
+                protected:
+                        void generate_event() override;
+
+                private:
+                        struct OutputState
+                        {
+                                bool enabled;
+                                bool state;
+                        };
+
+                        mutable std::unordered_map<std::string, OutputState> known_states_;
+                        const DigitalOutputsList* do_list_ = nullptr;
+                };
 		
 		class MotionAlarmEventGenerator : public IEventGenerator
 		{
