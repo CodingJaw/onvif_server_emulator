@@ -8,6 +8,7 @@
 #include "../onvif_services/physical_components/IDigitalInput.h"
 #include "../onvif_services/ptz_service.h"
 #include "../onvif_services/recording_search_service.h"
+#include "../onvif_services/physical_components/IDigitalOutput.h"
 #include "include/onvif_services/service_configs.h"
 
 #include "utility/AuthHelper.h"
@@ -22,6 +23,7 @@
 #include <boost/property_tree/json_parser.hpp>
 
 #include <algorithm>
+#include <fstream>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -72,9 +74,9 @@ void Server::init()
 		response->write(SimpleWeb::StatusCode::client_error_bad_request, "Bad request");
 	};
 
-	http_server_->resource["^/api/io/input$"]["GET"] = [this](
-	                std::shared_ptr<HttpServer::Response> response,
-	                std::shared_ptr<HttpServer::Request> /*request*/) {
+        http_server_->resource["^/api/io/input$"]["GET"] = [this](
+                        std::shared_ptr<HttpServer::Response> response,
+                        std::shared_ptr<HttpServer::Request> /*request*/) {
 		pt::ptree inputs;
 		for (const auto& di : server_configs_->digital_inputs_)
 		{
@@ -90,8 +92,29 @@ void Server::init()
 
 		std::ostringstream os;
 		pt::write_json(os, root);
-		response->write(SimpleWeb::StatusCode::success_ok, os.str());
-	};
+                response->write(SimpleWeb::StatusCode::success_ok, os.str());
+        };
+
+        http_server_->resource["^/api/io/output$"]["GET"] = [this](
+                        std::shared_ptr<HttpServer::Response> response,
+                        std::shared_ptr<HttpServer::Request> /*request*/) {
+                pt::ptree outputs;
+                for (const auto& dout : server_configs_->digital_outputs_)
+                {
+                        pt::ptree item;
+                        item.put("token", dout->GetToken());
+                        item.put("enabled", dout->IsEnabled());
+                        item.put("state", dout->GetState());
+                        outputs.push_back(std::make_pair("", item));
+                }
+
+                pt::ptree root;
+                root.add_child("outputs", outputs);
+
+                std::ostringstream os;
+                pt::write_json(os, root);
+                response->write(SimpleWeb::StatusCode::success_ok, os.str());
+        };
 
 	http_server_->resource["^/api/io/input/([^/]+)/([^/]+)$"]["POST"] =
 	                [this](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) {
@@ -150,7 +173,25 @@ void Server::init()
 	};
 
 	auto configs_dir = configs_path_ + "/";
-	server_configs_ = read_server_configs(configs_dir + COMMON_CONFIGS_NAME);
+        server_configs_ = read_server_configs(configs_dir + COMMON_CONFIGS_NAME);
+
+        const auto device_configs_path = configs_dir + "device.config";
+        std::ifstream device_configs_file(device_configs_path);
+        if (device_configs_file.is_open())
+        {
+                pt::ptree device_configs;
+                pt::read_json(device_configs_file, device_configs);
+
+                if (auto digital_inputs_node = device_configs.get_child_optional("DigitalInputs"))
+                        server_configs_->digital_inputs_ = read_digital_inputs(*digital_inputs_node);
+
+                if (auto digital_outputs_node = device_configs.get_child_optional("DigitalOutputs"))
+                        server_configs_->digital_outputs_ = read_digital_outputs(*digital_outputs_node);
+        }
+        else
+        {
+                logger_->Warn("Could not read device configurations at " + device_configs_path);
+        }
 
 	http_server_->config.address = server_configs_->ipv4_address_;
 	http_server_->config.port = std::stoi(server_configs_->http_port_);
@@ -299,9 +340,9 @@ std::shared_ptr<ServerConfigs> read_server_configs(const std::string& config_pat
 
 DigitalInputsList read_digital_inputs(const boost::property_tree::ptree& configs_node)
 {
-	std::vector<std::shared_ptr<IDigitalInput>> result;
-	for (const auto& t : configs_node)
-	{
+        std::vector<std::shared_ptr<IDigitalInput>> result;
+        for (const auto& t : configs_node)
+        {
 		auto di = std::make_shared<SimpleDigitalInputImpl>(
 				SimpleDigitalInputImpl(t.second.get<std::string>("Token"), t.second.get<bool>("InitialState")));
 
@@ -317,7 +358,26 @@ DigitalInputsList read_digital_inputs(const boost::property_tree::ptree& configs
 		result.push_back(di);
 	}
 
-	return result;
+        return result;
+}
+
+DigitalOutputsList read_digital_outputs(const boost::property_tree::ptree& configs_node)
+{
+        DigitalOutputsList result;
+        for (const auto& t : configs_node)
+        {
+                auto dout = std::make_shared<SimpleDigitalOutputImpl>(
+                                t.second.get<std::string>("Token"), t.second.get<bool>("InitialState", false));
+
+                if (t.second.get<bool>("Enabled", true))
+                        dout->Enable();
+                else
+                        dout->Disable();
+
+                result.push_back(std::move(dout));
+        }
+
+        return result;
 }
 
 AUTH_SCHEME str_to_auth(const std::string& scheme)
