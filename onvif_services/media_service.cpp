@@ -6,9 +6,11 @@
 #include "../Server.h"
 #include "../utility/AudioSourceReader.h"
 #include "../utility/HttpHelper.h"
+#include "../utility/XmlParser.h"
+#include "event_service.h"
+#include "pullpoint/pull_point.h"
 #include "../utility/MediaProfilesManager.h"
 #include "../utility/SoapHelper.h"
-#include "../utility/XmlParser.h"
 #include "media2_service.h"
 
 #include "../Simple-Web-Server/server_http.hpp"
@@ -18,6 +20,7 @@
 #include <boost/property_tree/xml_parser.hpp>
 
 #include <algorithm>
+#include <stdexcept>
 
 namespace pt = boost::property_tree;
 
@@ -37,6 +40,7 @@ static const std::string GetVideoAnalyticsConfigurations = "GetVideoAnalyticsCon
 static const std::string GetVideoSourceConfiguration = "GetVideoSourceConfiguration";
 static const std::string GetVideoSourceConfigurations = "GetVideoSourceConfigurations";
 static const std::string GetVideoSources = "GetVideoSources";
+static const std::string SetSynchronizationPoint = "SetSynchronizationPoint";
 
 // soap helper functions
 void fill_soap_media_profile(const pt::ptree& /*in_json_config*/, pt::ptree& /*out_profile_node*/,
@@ -46,9 +50,64 @@ namespace osrv
 {
 namespace media
 {
+struct SetSynchronizationPointHandler : public OnvifRequestBase
+{
+        SetSynchronizationPointHandler(const std::map<std::string, std::string>& xs,
+                        const std::shared_ptr<pt::ptree>& configs)
+                        : OnvifRequestBase(SetSynchronizationPoint, auth::SECURITY_LEVELS::READ_MEDIA, xs, configs)
+        {
+        }
+
+        void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
+        {
+                auto request_tree = exns::to_ptree(request->content.string());
+                auto header_message_id = exns::find_hierarchy("Envelope.Header.MessageID", request_tree);
+                auto header_to = exns::find_hierarchy("Envelope.Header.To", request_tree);
+
+                auto subscription_reference = exns::find_hierarchy(
+                        "Envelope.Body.SetSynchronizationPoint.SubscriptionReference.Address", request_tree);
+
+                if (subscription_reference.empty())
+                        subscription_reference = header_to;
+
+                if (subscription_reference.empty())
+                        subscription_reference = request->path;
+
+                try
+                {
+                        auto* notifications_manager = osrv::event::GetNotificationsManager();
+
+                        if (!notifications_manager)
+                                throw std::runtime_error("Notifications manager is not initialized");
+
+                        notifications_manager->SetSynchronizationPoint(subscription_reference);
+
+                        auto envelope_tree = utility::soap::getEnvelopeTree(osrv::event::GetEventXmlNamespaces());
+                        envelope_tree.add("s:Header.wsa:MessageID", header_message_id);
+                        envelope_tree.add("s:Header.wsa:To", "http://www.w3.org/2005/08/addressing/anonymous");
+                        envelope_tree.add("s:Header.wsa:Action",
+                                "http://www.onvif.org/ver10/events/wsdl/PullPointSubscription/SetSynchronizationPointResponse");
+
+                        envelope_tree.add("s:Body.tet:SetSynchronizationPointResponse", "");
+
+                        pt::ptree root_tree;
+                        root_tree.put_child("s:Envelope", envelope_tree);
+
+                        std::ostringstream os;
+                        pt::write_xml(os, root_tree);
+
+                        utility::http::fillResponseWithHeaders(*response, os.str());
+                }
+                catch (const std::exception& e)
+                {
+                        utility::http::fillResponseWithHeaders(*response, e.what(), utility::http::ClientErrorDefaultWriter);
+                }
+        }
+};
+
 struct GetAudioDecoderConfigurationsHandler : public OnvifRequestBase
 {
-	GetAudioDecoderConfigurationsHandler(const std::map<std::string, std::string>& xs,
+        GetAudioDecoderConfigurationsHandler(const std::map<std::string, std::string>& xs,
 																			 const std::shared_ptr<pt::ptree>& configs)
 			: OnvifRequestBase(GetAudioDecoderConfigurations, auth::SECURITY_LEVELS::READ_MEDIA, xs, configs)
 	{
@@ -720,13 +779,15 @@ private:
 } // namespace media
 
 MediaService::MediaService(const std::string& service_uri, const std::string& service_name,
-													 std::shared_ptr<IOnvifServer> srv)
-		: IOnvifService(service_uri, service_name, srv)
+                                                                                                         std::shared_ptr<IOnvifServer> srv)
+                : IOnvifService(service_uri, service_name, srv)
 {
-	requestHandlers_.push_back(
-			std::make_shared<media::GetAudioDecoderConfigurationsHandler>(xml_namespaces_, configs_ptree_));
-	requestHandlers_.push_back(std::make_shared<media::GetAudioEncoderConfigurationOptionsHandler>(
-			xml_namespaces_, configs_ptree_, srv->ProfilesConfig()));
+        requestHandlers_.push_back(
+                        std::make_shared<media::SetSynchronizationPointHandler>(xml_namespaces_, configs_ptree_));
+        requestHandlers_.push_back(
+                        std::make_shared<media::GetAudioDecoderConfigurationsHandler>(xml_namespaces_, configs_ptree_));
+        requestHandlers_.push_back(std::make_shared<media::GetAudioEncoderConfigurationOptionsHandler>(
+                        xml_namespaces_, configs_ptree_, srv->ProfilesConfig()));
 	requestHandlers_.push_back(std::make_shared<media::GetAudioEncoderConfigurationHandler>(
 			xml_namespaces_, configs_ptree_, srv->ProfilesConfig()));
 	requestHandlers_.push_back(std::make_shared<media::GetAudioOutputsHandler>(xml_namespaces_, configs_ptree_));

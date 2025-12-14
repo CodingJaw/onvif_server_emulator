@@ -2,6 +2,7 @@
 
 #include "../HttpServerFwd.h"
 
+#include <map>
 #include <string>
 
 class ILogger;
@@ -12,7 +13,12 @@ struct ServerConfigs;
 
 namespace event
 {
+class NotificationsManager;
+
 void init_service(HttpServer& /*srv*/, const osrv::ServerConfigs& /*configs*/, const std::string& /*configs_path*/,
-									ILogger& /*logger*/);
+                                                                        ILogger& /*logger*/);
+
+NotificationsManager* GetNotificationsManager();
+const std::map<std::string, std::string>& GetEventXmlNamespaces();
 }
 } // namespace osrv
