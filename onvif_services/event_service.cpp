@@ -16,6 +16,9 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 
+#include <array>
+#include <iomanip>
+#include <random>
 #include <map>
 #include <vector>
 
@@ -47,6 +50,27 @@ namespace osrv
 namespace event
 {
 static std::vector<utility::http::HandlerSP> handlers;
+
+std::string generate_message_uuid()
+{
+        std::array<unsigned char, 16> bytes{};
+        std::random_device rd;
+        for (auto& b : bytes)
+                b = static_cast<unsigned char>(rd());
+
+        std::ostringstream os;
+        os << "urn:uuid:";
+        for (size_t i = 0; i < bytes.size(); ++i)
+        {
+                os << std::hex << std::setfill('0') << std::setw(2)
+                        << static_cast<int>(bytes[i]);
+
+                if (i == 3 || i == 5 || i == 7 || i == 9)
+                        os << "-";
+        }
+
+        return os.str();
+}
 
 void do_handler_request(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request);
 
@@ -111,13 +135,19 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
 	const static std::string ACTION_PULLMESSAGES =
 			"http://www.onvif.org/ver10/events/wsdl/PullPointSubscription/PullMessagesRequest";
 	const static std::string ACTION_RENEWREQUEST = "http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/RenewRequest";
-	const static std::string ACTION_SETSYNCHRONIZATIONPOINT =
-			"http://www.onvif.org/ver10/events/wsdl/PullPointSubscription/SetSynchronizationPointRequest";
-	const static std::string ACTION_UNSUBSCRIBE =
-			"http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/UnsubscribeRequest";
+        const static std::string ACTION_SETSYNCHRONIZATIONPOINT =
+                        "http://www.onvif.org/ver10/events/wsdl/PullPointSubscription/SetSynchronizationPointRequest";
+        const static std::string ACTION_UNSUBSCRIBE =
+                        "http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/UnsubscribeRequest";
 
-	if (header_action == ACTION_PULLMESSAGES)
-	{
+        if (header_message_id.empty())
+        {
+                header_message_id = generate_message_uuid();
+                log_->Debug("PullMessages request missing MessageID; generated new id '" + header_message_id + "'");
+        }
+
+        if (header_action == ACTION_PULLMESSAGES)
+        {
 		auto timeout = exns::find_hierarchy("Envelope.Body.PullMessages.Timeout", request_tree);
 		auto messages_limit = std::stoi((exns::find_hierarchy("Envelope.Body.PullMessages.MessageLimit", request_tree)));
 
