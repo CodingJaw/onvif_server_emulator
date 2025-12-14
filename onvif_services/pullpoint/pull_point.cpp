@@ -17,45 +17,56 @@ namespace osrv
 
 	namespace event {
 
-		void PullPoint::PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response)
-		{
-			is_client_waiting_ = true;
+                void PullPoint::PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response)
+                {
+                        is_client_waiting_ = true;
 
-			handler_ = handler;
-			response_writer_ = response;
+                        handler_ = handler;
+                        response_writer_ = response;
 
-			if (!events_.empty())
-			{
-				// Response to a subcriber immediately
-				response_to_pullmessages();
-			}
+                        logger_->Debug("PullMessages requested for subscription '" + subscription_ref_ + "'");
+
+                        if (!events_.empty())
+                        {
+                                // Response to a subcriber immediately
+                                logger_->Debug("Delivering " + std::to_string(events_.size())
+                                        + " queued event(s) to waiting subscriber '" + subscription_ref_ + "'");
+                                response_to_pullmessages();
+                        }
 
 			// Do charge the timeout timer
-			timeout_timer_.cancel();
-			timeout_timer_.expires_after(std::chrono::seconds(timeout_interval_));
-			timeout_timer_.async_wait([handler, this](const boost::system::error_code& error) {
-					if (error)
-						return;
+                        timeout_timer_.cancel();
+                        timeout_timer_.expires_after(std::chrono::seconds(timeout_interval_));
+                        timeout_timer_.async_wait([handler, this](const boost::system::error_code& error) {
+                                        if (error)
+                                                return;
 
-					response_to_pullmessages();
-				});
-		}
+                                        logger_->Debug("PullMessages timeout reached for subscription '" + subscription_ref_
+                                                + "' with " + std::to_string(events_.size()) + " pending event(s)");
+                                        response_to_pullmessages();
+                                });
+                }
 
-		void PullPoint::Notify(NotificationMessage&& event)
-		{
-			events_.push_back(std::move(event));
+                void PullPoint::Notify(NotificationMessage&& event)
+                {
+                        logger_->Debug("Received event for subscription '" + subscription_ref_ + "' topic='" + event.topic
+                                + "' name='" + event.data_name + "' value='" + event.data_value + "'");
+                        events_.push_back(std::move(event));
 
-			response_to_pullmessages();
-		}
+                        response_to_pullmessages();
+                }
 		
-		void PullPoint::response_to_pullmessages()
-		{
-			if (!is_client_waiting_)
-				return;
+                void PullPoint::response_to_pullmessages()
+                {
+                        if (!is_client_waiting_)
+                                return;
 
-			// Do serialize all stored events
+                        logger_->Debug("Sending PullMessages response with " + std::to_string(events_.size())
+                                + " event(s) for subscription '" + subscription_ref_ + "'");
 
-			// Do copy only less then specified in a PullMessages messages limit
+                        // Do serialize all stored events
+
+                        // Do copy only less then specified in a PullMessages messages limit
 			// FIX: in current implementation all events is copied
 			std::deque<NotificationMessage> copied_events;
 			copied_events.swap(events_);
@@ -202,10 +213,11 @@ namespace osrv
 			logger_->Debug("NotificationsManager is run successfully");
 		}
 
-		void NotificationsManager::do_pullmessages_response(const std::string& subscr_ref, const std::string& msg_id,
-			std::deque<NotificationMessage>&& events, std::shared_ptr<HttpServer::Response> response)
-		{
-			logger_->Debug("Sending PullPoint response with msg id: " + subscr_ref);
+                void NotificationsManager::do_pullmessages_response(const std::string& subscr_ref, const std::string& msg_id,
+                        std::deque<NotificationMessage>&& events, std::shared_ptr<HttpServer::Response> response)
+                {
+                        logger_->Debug("Sending PullPoint response for subscription '" + subscr_ref + "' with msg id '"
+                                + msg_id + "' containing " + std::to_string(events.size()) + " event(s)");
 
 			/**
 				PullMessagesResponse response format:

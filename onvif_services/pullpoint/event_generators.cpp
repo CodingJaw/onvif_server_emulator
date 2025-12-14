@@ -80,6 +80,10 @@ namespace osrv
                                 if (!changed)
                                         continue;
 
+                                logger_.Debug("Digital input state changed: token='" + di->GetToken()
+                                        + "' enabled=" + std::string(current_state.enabled ? "true" : "false")
+                                        + " state=" + std::string(current_state.state ? "true" : "false"));
+
                                 NotificationMessage nm;
                                 nm.topic = notifications_topic_;
                                 nm.utc_time = utility::datetime::system_utc_datetime();
@@ -163,6 +167,10 @@ namespace osrv
 
                                 if (!changed)
                                         continue;
+
+                                logger_.Debug("Digital output state changed: token='" + output->GetToken()
+                                        + "' enabled=" + std::string(current_state.enabled ? "true" : "false")
+                                        + " state=" + std::string(current_state.state ? "true" : "false"));
 
                                 NotificationMessage nm;
                                 nm.topic = notifications_topic_;
