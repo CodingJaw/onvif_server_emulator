@@ -37,6 +37,8 @@ static std::unique_ptr<osrv::event::NotificationsManager> notifications_manager;
 
 static std::unordered_map<std::string, std::shared_ptr<osrv::event::CellMotionEventGenerator>> cell_motion_generators;
 static std::mutex cell_motion_generators_mtx;
+static std::shared_ptr<osrv::event::MotionAlarmEventGenerator> motion_alarm_generator;
+static std::mutex motion_alarm_generator_mtx;
 
 namespace pt = boost::property_tree;
 static pt::ptree EVENT_CONFIGS_TREE;
@@ -73,7 +75,8 @@ std::vector<MotionState> get_motion_states()
 
 std::optional<MotionState> update_motion_state(const std::string& token, std::optional<bool> enabled, std::optional<bool> state, std::optional<std::chrono::seconds> active_duration)
 {
-std::shared_ptr<osrv::event::CellMotionEventGenerator> generator;
+        std::shared_ptr<osrv::event::CellMotionEventGenerator> generator;
+        std::shared_ptr<osrv::event::MotionAlarmEventGenerator> motion_alarm;
 
         {
                 std::lock_guard lk(cell_motion_generators_mtx);
@@ -84,12 +87,24 @@ std::shared_ptr<osrv::event::CellMotionEventGenerator> generator;
                 generator = it->second;
         }
 
-const auto current_state = generator->GetState();
+        {
+                std::lock_guard lk(motion_alarm_generator_mtx);
+                motion_alarm = motion_alarm_generator;
+        }
+        const auto current_state = generator->GetState();
 
-generator->UpdateState(
-enabled.value_or(current_state.enabled),
-state.value_or(current_state.state),
-active_duration);
+        generator->UpdateState(
+                enabled.value_or(current_state.enabled),
+                state.value_or(current_state.state),
+                active_duration);
+
+        if (motion_alarm)
+        {
+                motion_alarm->UpdateState(
+                        enabled.value_or(current_state.enabled),
+                        state.value_or(current_state.state),
+                        active_duration);
+        }
 
         const auto updated_state = generator->GetState();
         return MotionState{ updated_state.token, updated_state.enabled, updated_state.state };
@@ -521,15 +536,24 @@ void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_ins
         }
 
         // add motion alarms generator
-	if (EVENT_CONFIGS_TREE.get<bool>("MotionAlarm.GenerateEvents"))
-	{
-		auto ma_event_generator = std::make_shared<osrv::event::MotionAlarmEventGenerator>(
-				EVENT_CONFIGS_TREE.get<std::string>("MotionAlarm.Source"),
-				EVENT_CONFIGS_TREE.get<int>("MotionAlarm.EventGenerationTimeout"),
-				EVENT_CONFIGS_TREE.get<std::string>("MotionAlarm.Topic"), notifications_manager->GetIoContext(), *log_);
+        if (EVENT_CONFIGS_TREE.get<bool>("MotionAlarm.GenerateEvents"))
+        {
+                auto ma_event_generator = std::make_shared<osrv::event::MotionAlarmEventGenerator>(
+                                EVENT_CONFIGS_TREE.get<std::string>("MotionAlarm.Source"),
+                                EVENT_CONFIGS_TREE.get<int>("MotionAlarm.EventGenerationTimeout"),
+                                EVENT_CONFIGS_TREE.get<std::string>("MotionAlarm.Topic"), notifications_manager->GetIoContext(), *log_);
 
-		notifications_manager->AddGenerator(ma_event_generator);
-	}
+                ma_event_generator->UpdateState(
+                        EVENT_CONFIGS_TREE.get<bool>("MotionAlarm.Enabled", true),
+                        EVENT_CONFIGS_TREE.get<bool>("MotionAlarm.InitialState", false));
+
+                notifications_manager->AddGenerator(ma_event_generator);
+
+                {
+                        std::lock_guard lk(motion_alarm_generator_mtx);
+                        motion_alarm_generator = ma_event_generator;
+                }
+        }
 
 	// add cell motion alarms generator
 	if (EVENT_CONFIGS_TREE.get<bool>("CellMotion.GenerateEvents"))

@@ -176,44 +176,127 @@ namespace osrv
                         }
                 }
 
-		MotionAlarmEventGenerator::MotionAlarmEventGenerator(const std::string& source_token,
-			int interval, const std::string& topic,
-			boost::asio::io_context& io_context, const ILogger& logger_)
-			: IEventGenerator(interval, topic, io_context, logger_),
-			source_token_(source_token)
-		{
-		}
+                MotionAlarmEventGenerator::MotionAlarmEventGenerator(const std::string& source_token,
+                        int interval, const std::string& topic,
+                        boost::asio::io_context& io_context, const ILogger& logger_)
+                        : IEventGenerator(interval, topic, io_context, logger_),
+                        source_token_(source_token),
+                        auto_reset_timer_(io_context)
+                {
+                }
 
-		std::deque<NotificationMessage> MotionAlarmEventGenerator::GenerateSynchronizationEvent() const
-		{
-			TRACE_LOG(logger_);
+                std::deque<NotificationMessage> MotionAlarmEventGenerator::GenerateSynchronizationEvent() const
+                {
+                        TRACE_LOG(logger_);
 
-			NotificationMessage nm;
-			nm.topic = notifications_topic_;
-			nm.utc_time = utility::datetime::system_utc_datetime();
-			nm.property_operation = "Initialized";
-			nm.source_item_descriptions.push_back({"Source", source_token_});
-			nm.data_name = "State";
-			nm.data_value = "false";
+                        bool resolved_state = false;
+                        {
+                                std::lock_guard lk(state_mutex_);
+                                resolved_state = enabled_ && state_;
+                        }
 
-			return { nm };
-		}
+                        NotificationMessage nm;
+                        nm.topic = notifications_topic_;
+                        nm.utc_time = utility::datetime::system_utc_datetime();
+                        nm.property_operation = "Initialized";
+                        nm.source_item_descriptions.push_back({"Source", source_token_});
+                        nm.data_name = "State";
+                        nm.data_value = resolved_state ? "true" : "false";
 
-		void MotionAlarmEventGenerator::generate_event()
-		{
-			TRACE_LOG(logger_);
+                        return { nm };
+                }
 
-			NotificationMessage nm;
-			nm.topic = notifications_topic_;
-			nm.utc_time = utility::datetime::system_utc_datetime();
-			nm.property_operation = "Changed";
-			nm.source_item_descriptions.push_back({"Source", source_token_});
-			nm.data_name = "State";
-			// each time invert state
-			nm.data_value = InvertState() ? "true" : "false";
+                MotionAlarmEventGenerator::MotionState MotionAlarmEventGenerator::GetState() const
+                {
+                        std::lock_guard lk(state_mutex_);
+                        return MotionState{ enabled_, state_ };
+                }
 
-			event_signal_(nm);
-		}
+                void MotionAlarmEventGenerator::UpdateState(bool enabled, bool state, std::optional<std::chrono::seconds> active_duration)
+                {
+                        bool should_emit = false;
+
+                        {
+                                std::lock_guard lk(state_mutex_);
+                                if (enabled_ != enabled || state_ != state)
+                                {
+                                        enabled_ = enabled;
+                                        state_ = state;
+                                        state_dirty_ = true;
+                                        should_emit = true;
+                                }
+                        }
+
+                        schedule_reset_timer(active_duration, state);
+
+                        if (should_emit)
+                        {
+                                boost::asio::post(io_context_, [this]() { generate_event(); });
+                        }
+                }
+
+                void MotionAlarmEventGenerator::schedule_reset_timer(const std::optional<std::chrono::seconds>& active_duration, bool requested_state)
+                {
+                        boost::asio::post(io_context_, [this, active_duration, requested_state]() {
+                                boost::system::error_code ec;
+                                auto_reset_timer_.cancel(ec);
+
+                                if (!active_duration || active_duration->count() <= 0 || !requested_state)
+                                {
+                                        return;
+                                }
+
+                                auto_reset_timer_.expires_after(*active_duration);
+                                auto_reset_timer_.async_wait([this](const boost::system::error_code& error) {
+                                        if (error == boost::asio::error::operation_aborted)
+                                                return;
+
+                                        bool should_emit = false;
+                                        {
+                                                std::lock_guard lk(state_mutex_);
+                                                if (!state_)
+                                                        return;
+
+                                                state_ = false;
+                                                state_dirty_ = true;
+                                                should_emit = true;
+                                        }
+
+                                        if (should_emit)
+                                        {
+                                                boost::asio::post(io_context_, [this]() { generate_event(); });
+                                        }
+                                });
+                        });
+                }
+
+                void MotionAlarmEventGenerator::generate_event()
+                {
+                        TRACE_LOG(logger_);
+
+                        bool resolved_state = false;
+
+                        {
+                                std::lock_guard lk(state_mutex_);
+
+                                if (!state_dirty_)
+                                        return;
+
+                                resolved_state = enabled_ && state_;
+                                state_dirty_ = false;
+                                last_reported_state_ = resolved_state;
+                        }
+
+                        NotificationMessage nm;
+                        nm.topic = notifications_topic_;
+                        nm.utc_time = utility::datetime::system_utc_datetime();
+                        nm.property_operation = "Changed";
+                        nm.source_item_descriptions.push_back({"Source", source_token_});
+                        nm.data_name = "State";
+                        nm.data_value = resolved_state ? "true" : "false";
+
+                        event_signal_(nm);
+                }
 
                 CellMotionEventGenerator::CellMotionEventGenerator(const std::string& vsc_token, const std::string& vac_token,
                         const std::string& rule,

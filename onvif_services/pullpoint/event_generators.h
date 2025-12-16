@@ -145,28 +145,41 @@ namespace osrv
                         const DigitalOutputsList* do_list_ = nullptr;
                 };
 		
-		class MotionAlarmEventGenerator : public IEventGenerator
-		{
-		public:
-			MotionAlarmEventGenerator(const std::string& /*source_token*/, int /*interval*/, const std::string& /*topic*/,
-				boost::asio::io_context& /*io_context*/, const ILogger& /*logger_*/);
+                class MotionAlarmEventGenerator : public IEventGenerator
+                {
+                public:
+                        MotionAlarmEventGenerator(const std::string& /*source_token*/, int /*interval*/, const std::string& /*topic*/,
+                                boost::asio::io_context& /*io_context*/, const ILogger& /*logger_*/);
 
-			// Inherited via IEventGenerator
-			std::deque<NotificationMessage> GenerateSynchronizationEvent() const override;
+                        // Inherited via IEventGenerator
+                        std::deque<NotificationMessage> GenerateSynchronizationEvent() const override;
 
-		protected:
-			void generate_event() override;
+                        struct MotionState
+                        {
+                                bool enabled;
+                                bool state;
+                        };
 
-		private:
-			bool InvertState()
-			{
-				return state_ = !state_;
-			}
+                        MotionState GetState() const;
 
-		private:
-			bool state_ = false;
-			std::string source_token_;
-		};
+                        void UpdateState(bool enabled, bool state, std::optional<std::chrono::seconds> active_duration = std::nullopt);
+
+                protected:
+                        void generate_event() override;
+
+                private:
+                        void schedule_reset_timer(const std::optional<std::chrono::seconds>& active_duration, bool requested_state);
+
+                private:
+                        mutable std::mutex state_mutex_;
+                        bool state_ = false;
+                        bool enabled_ = true;
+                        bool state_dirty_ = false;
+                        std::optional<bool> last_reported_state_;
+                        std::string source_token_;
+
+                        boost::asio::steady_timer auto_reset_timer_;
+                };
 
 		class CellMotionEventGenerator : public IEventGenerator
 		{
