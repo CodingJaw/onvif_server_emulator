@@ -30,6 +30,7 @@ static const osrv::ServerConfigs* server_configs = nullptr;
 static std::shared_ptr<utility::digest::IDigestSession> digest_session;
 
 static std::unique_ptr<osrv::event::NotificationsManager> notifications_manager;
+static std::shared_ptr<osrv::event::CellMotionEventGenerator> cellmotion_generator;
 
 namespace pt = boost::property_tree;
 static pt::ptree EVENT_CONFIGS_TREE;
@@ -428,7 +429,7 @@ void do_handler_request(std::shared_ptr<HttpServer::Response> response, std::sha
 };
 
 void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_instance, const std::string& configs_path,
-									ILogger& logger)
+                                                                        ILogger& logger)
 {
 	if (log_ != nullptr)
 		return log_->Error("EventService is already inited!");
@@ -485,18 +486,18 @@ void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_ins
 	}
 
 	// add cell motion alarms generator
-	if (EVENT_CONFIGS_TREE.get<bool>("CellMotion.GenerateEvents"))
-	{
-		auto cellmotion_generator = std::make_shared<osrv::event::CellMotionEventGenerator>(
-				EVENT_CONFIGS_TREE.get<std::string>("CellMotion.VideoSourceConfigurationToken"),
-				EVENT_CONFIGS_TREE.get<std::string>("CellMotion.VideoAnalyticsConfigurationToken"),
-				EVENT_CONFIGS_TREE.get<std::string>("CellMotion.Rule"),
-				EVENT_CONFIGS_TREE.get<std::string>("CellMotion.DataItemName"),
-				EVENT_CONFIGS_TREE.get<int>("CellMotion.EventGenerationTimeout"),
-				EVENT_CONFIGS_TREE.get<std::string>("CellMotion.Topic"), notifications_manager->GetIoContext(), *log_);
+        if (EVENT_CONFIGS_TREE.get<bool>("CellMotion.GenerateEvents"))
+        {
+                cellmotion_generator = std::make_shared<osrv::event::CellMotionEventGenerator>(
+                                EVENT_CONFIGS_TREE.get<std::string>("CellMotion.VideoSourceConfigurationToken"),
+                                EVENT_CONFIGS_TREE.get<std::string>("CellMotion.VideoAnalyticsConfigurationToken"),
+                                EVENT_CONFIGS_TREE.get<std::string>("CellMotion.Rule"),
+                                EVENT_CONFIGS_TREE.get<std::string>("CellMotion.DataItemName"),
+                                EVENT_CONFIGS_TREE.get<int>("CellMotion.EventGenerationTimeout"),
+                                EVENT_CONFIGS_TREE.get<std::string>("CellMotion.Topic"), notifications_manager->GetIoContext(), *log_);
 
-		notifications_manager->AddGenerator(cellmotion_generator);
-	}
+                notifications_manager->AddGenerator(cellmotion_generator);
+        }
 
 	// add audio detection alarms generator
 	if (EVENT_CONFIGS_TREE.get<bool>("AudioDetection.GenerateEvents"))
@@ -557,6 +558,23 @@ void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_ins
 	}
 
 } // init service
+
+std::optional<osrv::event::CellMotionEventGenerator::MotionState> get_cell_motion_state()
+{
+        if (!cellmotion_generator)
+                return std::nullopt;
+
+        return cellmotion_generator->GetState();
+}
+
+bool set_cell_motion_state(bool enabled, bool state, std::chrono::seconds delay)
+{
+        if (!cellmotion_generator)
+                return false;
+
+        cellmotion_generator->SetState(enabled, state, delay);
+        return true;
+}
 
 } // namespace event
 } // namespace osrv
