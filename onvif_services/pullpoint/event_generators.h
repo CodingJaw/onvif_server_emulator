@@ -9,6 +9,7 @@
 #include <optional>
 #include <unordered_map>
 #include <mutex>
+#include <chrono>
 
 #include <boost/signals2.hpp>
 #include <boost/asio/io_context.hpp>
@@ -189,12 +190,14 @@ namespace osrv
 
                         MotionState GetState() const;
 
-                        void UpdateState(bool enabled, bool state);
+                        void UpdateState(bool enabled, bool state, std::optional<std::chrono::seconds> active_duration = std::nullopt);
 
                 protected:
                         void generate_event() override;
 
                 private:
+                        void schedule_reset_timer(const std::optional<std::chrono::seconds>& active_duration, bool requested_state);
+
                         mutable std::mutex state_mutex_;
                         bool state_ = false;
                         bool enabled_ = true;
@@ -205,6 +208,8 @@ namespace osrv
                         std::string video_analytics_configuration_token_;
                         std::string rule_;
                         std::string data_item_name_;
+
+                        boost::asio::steady_timer auto_reset_timer_;
                 };
 
 		class AudioDetectectionEventGenerator : public IEventGenerator

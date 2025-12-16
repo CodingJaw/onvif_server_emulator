@@ -19,6 +19,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <chrono>
 #include <unordered_map>
 #include <vector>
 
@@ -70,9 +71,9 @@ std::vector<MotionState> get_motion_states()
         return states;
 }
 
-std::optional<MotionState> update_motion_state(const std::string& token, std::optional<bool> enabled, std::optional<bool> state)
+std::optional<MotionState> update_motion_state(const std::string& token, std::optional<bool> enabled, std::optional<bool> state, std::optional<std::chrono::seconds> active_duration)
 {
-        std::shared_ptr<osrv::event::CellMotionEventGenerator> generator;
+std::shared_ptr<osrv::event::CellMotionEventGenerator> generator;
 
         {
                 std::lock_guard lk(cell_motion_generators_mtx);
@@ -83,9 +84,12 @@ std::optional<MotionState> update_motion_state(const std::string& token, std::op
                 generator = it->second;
         }
 
-        const auto current_state = generator->GetState();
+const auto current_state = generator->GetState();
 
-        generator->UpdateState(enabled.value_or(current_state.enabled), state.value_or(current_state.state));
+generator->UpdateState(
+enabled.value_or(current_state.enabled),
+state.value_or(current_state.state),
+active_duration);
 
         const auto updated_state = generator->GetState();
         return MotionState{ updated_state.token, updated_state.enabled, updated_state.state };
