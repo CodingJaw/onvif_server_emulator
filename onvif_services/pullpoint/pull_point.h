@@ -2,6 +2,7 @@
 
 #include "../Logger.h"
 #include "../utility/DateTime.hpp"
+#include "notification_message.h"
 #include "event_generators.h"
 
 #include <deque>
@@ -17,31 +18,13 @@
 #include "../HttpServerFwd.h"
 #include "../Simple-Web-Server/server_http.hpp"
 
-namespace
-{
-	using StringPairsList_t = std::vector<std::pair<std::string, std::string>>;
-}
-
 namespace osrv
 {
-	namespace event
-	{
-		struct NotificationMessage
-		{
-			std::string topic;
-			std::string utc_time;
-			std::string property_operation;
-
-			// { name, value }
-			StringPairsList_t source_item_descriptions;
-
-			std::string data_name;
-			std::string data_value;
-		};
-
-		class PullPoint
-		{
-		public:
+        namespace event
+        {
+                class PullPoint
+                {
+                public:
 
 			using pull_messages_handler_t = std::function<void(const std::string& subscription_reference,
 				std::deque<NotificationMessage>&& events,

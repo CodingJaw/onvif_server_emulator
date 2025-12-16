@@ -3,6 +3,7 @@
 #include "../Logger.h"
 #include "../onvif_services/physical_components/IDigitalInput.h"
 #include "../onvif_services/physical_components/IDigitalOutput.h"
+#include "notification_message.h"
 
 #include <functional>
 #include <deque>
@@ -19,10 +20,8 @@ namespace osrv
 {
 	namespace event
 	{
-		struct NotificationMessage;
-
-		class IEventGenerator
-		{
+                class IEventGenerator
+                {
 		public:
 			IEventGenerator(int interval, const std::string& topic, boost::asio::io_context& io_context, const ILogger& logger)
 				:
