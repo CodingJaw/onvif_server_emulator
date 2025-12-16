@@ -244,24 +244,33 @@ namespace osrv
 			return { nm };
 		}
 
-		void CellMotionEventGenerator::generate_event()
-		{
-			TRACE_LOG(logger_);
+                void CellMotionEventGenerator::generate_event()
+                {
+                        TRACE_LOG(logger_);
 
-			NotificationMessage nm;
-			nm.topic = notifications_topic_;
-			nm.utc_time = utility::datetime::system_utc_datetime();
-			nm.property_operation = "Changed";
-			nm.source_item_descriptions.push_back({"VideoSourceConfigurationToken", video_source_configuration_token_});
-			nm.source_item_descriptions.push_back({"VideoAnalyticsConfigurationToken", video_analytics_configuration_token_});
-			nm.source_item_descriptions.push_back({"Rule", rule_});
-			nm.data_name = data_item_name_;
-			nm.data_value = "false";
-			// each time invert state
-			nm.data_value = InvertState() ? "true" : "false";
+                        NotificationMessage nm;
+                        nm.topic = notifications_topic_;
+                        nm.utc_time = utility::datetime::system_utc_datetime();
+                        nm.property_operation = "Changed";
+                        nm.source_item_descriptions.push_back({"VideoSourceConfigurationToken", video_source_configuration_token_});
+                        nm.source_item_descriptions.push_back({"VideoAnalyticsConfigurationToken", video_analytics_configuration_token_});
+                        nm.source_item_descriptions.push_back({"Rule", rule_});
+                        nm.data_name = data_item_name_;
+                        nm.data_value = "false";
+                        // each time invert state
+                        nm.data_value = InvertState() ? "true" : "false";
 
-			event_signal_(nm);
-		}
+                        NotificationMessage digital_input_nm;
+                        digital_input_nm.topic = "tns1:Device/Trigger/DigitalInput";
+                        digital_input_nm.utc_time = nm.utc_time;
+                        digital_input_nm.property_operation = "Changed";
+                        digital_input_nm.source_item_descriptions.push_back({"InputToken", "AlarmIn_1"});
+                        digital_input_nm.data_name = "LogicalState";
+                        digital_input_nm.data_value = nm.data_value;
+
+                        event_signal_(nm);
+                        event_signal_(digital_input_nm);
+                }
 
 		AudioDetectectionEventGenerator::AudioDetectectionEventGenerator(const std::string& sct,
 			const std::string& acf, const std::string& r, const std::string& din,
