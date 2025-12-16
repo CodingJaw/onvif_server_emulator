@@ -258,10 +258,7 @@ namespace osrv
                 {
                         const auto now = std::chrono::steady_clock::now();
                         if (expiration_ && now >= *expiration_)
-                        {
                                 expiration_.reset();
-                                state_ = false;
-                        }
 
                         const bool effective_state = enabled_ && state_;
                         if (effective_state == last_emitted_state_)
@@ -368,10 +365,7 @@ namespace osrv
                 {
                         const auto now = std::chrono::steady_clock::now();
                         if (expiration_ && now >= *expiration_)
-                        {
                                 expiration_.reset();
-                                state_ = false;
-                        }
 
                         const bool effective_state = enabled_ && state_;
                         if (effective_state == last_emitted_state_)
