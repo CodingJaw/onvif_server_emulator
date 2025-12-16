@@ -215,17 +215,19 @@ namespace osrv
 			event_signal_(nm);
 		}
 
-		CellMotionEventGenerator::CellMotionEventGenerator(const std::string& vsc_token, const std::string& vac_token,
-			const std::string& rule,
-			const std::string& din,
-			int interval, const std::string& topic, boost::asio::io_context& io_context, const ILogger& logger_)
-			: IEventGenerator(interval, topic, io_context, logger_)
-			,video_source_configuration_token_(vsc_token)
-			,video_analytics_configuration_token_(vac_token)
-			,rule_(rule)
-			,data_item_name_(din)
-		{
-		}
+                CellMotionEventGenerator::CellMotionEventGenerator(const std::string& vsc_token, const std::string& vac_token,
+                        const std::string& rule,
+                        const std::string& din,
+                        const std::string& token,
+                        int interval, const std::string& topic, boost::asio::io_context& io_context, const ILogger& logger_)
+                        : IEventGenerator(interval, topic, io_context, logger_)
+                        ,video_source_configuration_token_(vsc_token)
+                        ,video_analytics_configuration_token_(vac_token)
+                        ,rule_(rule)
+                        ,data_item_name_(din)
+                        ,token_(token)
+                {
+                }
 
 		std::deque<NotificationMessage> CellMotionEventGenerator::GenerateSynchronizationEvent() const
 		{
@@ -234,19 +236,66 @@ namespace osrv
 			NotificationMessage nm;
 			nm.topic = notifications_topic_;
 			nm.utc_time = utility::datetime::system_utc_datetime();
-			nm.property_operation = "Initialized";
-			nm.source_item_descriptions.push_back({"VideoSourceConfigurationToken", video_source_configuration_token_});
-			nm.source_item_descriptions.push_back({"VideoAnalyticsConfigurationToken", video_analytics_configuration_token_});
-			nm.source_item_descriptions.push_back({"Rule", rule_});
-			nm.data_name = data_item_name_;
-			nm.data_value = "false";
+                        nm.property_operation = "Initialized";
+                        nm.source_item_descriptions.push_back({"VideoSourceConfigurationToken", video_source_configuration_token_});
+                        nm.source_item_descriptions.push_back({"VideoAnalyticsConfigurationToken", video_analytics_configuration_token_});
+                        nm.source_item_descriptions.push_back({"Rule", rule_});
+                        nm.data_name = data_item_name_;
 
-			return { nm };
-		}
+                        bool state = false;
+                        {
+                                std::lock_guard lk(state_mutex_);
+                                state = enabled_ && state_;
+                        }
+
+                        nm.data_value = state ? "true" : "false";
+
+                        return { nm };
+                }
+
+                CellMotionEventGenerator::MotionState CellMotionEventGenerator::GetState() const
+                {
+                        std::lock_guard lk(state_mutex_);
+                        return MotionState{ token_, enabled_, state_ };
+                }
+
+                void CellMotionEventGenerator::UpdateState(bool enabled, bool state)
+                {
+                        bool should_emit = false;
+
+                        {
+                                std::lock_guard lk(state_mutex_);
+                                if (enabled_ != enabled || state_ != state)
+                                {
+                                        enabled_ = enabled;
+                                        state_ = state;
+                                        state_dirty_ = true;
+                                        should_emit = true;
+                                }
+                        }
+
+                        if (should_emit)
+                        {
+                                boost::asio::post(io_context_, [this]() { generate_event(); });
+                        }
+                }
 
                 void CellMotionEventGenerator::generate_event()
                 {
                         TRACE_LOG(logger_);
+
+                        bool resolved_state = false;
+
+                        {
+                                std::lock_guard lk(state_mutex_);
+
+                                if (!state_dirty_)
+                                        return;
+
+                                resolved_state = enabled_ && state_;
+                                state_dirty_ = false;
+                                last_reported_state_ = resolved_state;
+                        }
 
                         NotificationMessage nm;
                         nm.topic = notifications_topic_;
@@ -256,15 +305,13 @@ namespace osrv
                         nm.source_item_descriptions.push_back({"VideoAnalyticsConfigurationToken", video_analytics_configuration_token_});
                         nm.source_item_descriptions.push_back({"Rule", rule_});
                         nm.data_name = data_item_name_;
-                        nm.data_value = "false";
-                        // each time invert state
-                        nm.data_value = InvertState() ? "true" : "false";
+                        nm.data_value = resolved_state ? "true" : "false";
 
                         NotificationMessage digital_input_nm;
                         digital_input_nm.topic = "tns1:Device/Trigger/DigitalInput";
                         digital_input_nm.utc_time = nm.utc_time;
                         digital_input_nm.property_operation = "Changed";
-                        digital_input_nm.source_item_descriptions.push_back({"InputToken", "AlarmIn_1"});
+                        digital_input_nm.source_item_descriptions.push_back({"InputToken", token_});
                         digital_input_nm.data_name = "LogicalState";
                         digital_input_nm.data_value = nm.data_value;
 

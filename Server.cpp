@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 
@@ -134,6 +135,29 @@ void Server::init()
                 }
 
                 root.add_child("outputs", outputs);
+
+                std::ostringstream os;
+                pt::write_json(os, root);
+                response->write(SimpleWeb::StatusCode::success_ok, os.str());
+        };
+
+        http_server_->resource["^/api/io/motion$"]["GET"] = [](const std::shared_ptr<HttpServer::Response>& response,
+                                                                  const std::shared_ptr<HttpServer::Request>& /*request*/) {
+                namespace pt = boost::property_tree;
+
+                pt::ptree root;
+                pt::ptree motions;
+
+                for (const auto& motion_state : osrv::event::get_motion_states())
+                {
+                        pt::ptree motion_node;
+                        motion_node.put("token", motion_state.token);
+                        motion_node.put("state", motion_state.state);
+                        motion_node.put("enabled", motion_state.enabled);
+                        motions.push_back(std::make_pair("", motion_node));
+                }
+
+                root.add_child("motions", motions);
 
                 std::ostringstream os;
                 pt::write_json(os, root);
@@ -265,6 +289,65 @@ void Server::init()
 
         http_server_->resource["^/api/io/output$"]["POST"] = io_output_handler;
         http_server_->resource["^/api/io/output$"]["PUT"] = io_output_handler;
+
+        auto io_motion_handler = [](const std::shared_ptr<HttpServer::Response>& response,
+                                    const std::shared_ptr<HttpServer::Request>& request) {
+                namespace pt = boost::property_tree;
+
+                std::stringstream ss;
+                ss << request->content.string();
+
+                pt::ptree request_body;
+                try
+                {
+                        pt::read_json(ss, request_body);
+                }
+                catch (const std::exception&)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid JSON");
+                        return;
+                }
+
+                const auto token = request_body.get_optional<std::string>("token");
+                if (!token)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Missing token");
+                        return;
+                }
+
+                auto enabled = request_body.get_optional<bool>("enabled");
+                auto state = request_body.get_optional<bool>("state");
+
+                if (!enabled && !state)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Missing state or enabled flag");
+                        return;
+                }
+
+                auto updated_state = osrv::event::update_motion_state(*token, enabled ? std::optional<bool>(*enabled) : std::optional<bool>(),
+                                                                                      state ? std::optional<bool>(*state) : std::optional<bool>());
+
+                if (!updated_state)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_not_found, "Unknown token");
+                        return;
+                }
+
+                pt::ptree motion_node;
+                motion_node.put("token", updated_state->token);
+                motion_node.put("state", updated_state->state);
+                motion_node.put("enabled", updated_state->enabled);
+
+                pt::ptree root;
+                root.add_child("motion", motion_node);
+
+                std::ostringstream os;
+                pt::write_json(os, root);
+                response->write(SimpleWeb::StatusCode::success_ok, os.str());
+        };
+
+        http_server_->resource["^/api/io/motion$"]["POST"] = io_motion_handler;
+        http_server_->resource["^/api/io/motion$"]["PUT"] = io_motion_handler;
 
         profiles_config_ = osrv::ServiceConfigs("media_profiles", configs_dir);
 

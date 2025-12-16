@@ -17,6 +17,9 @@
 #include <boost/property_tree/xml_parser.hpp>
 
 #include <map>
+#include <mutex>
+#include <optional>
+#include <unordered_map>
 #include <vector>
 
 using StringPairsList_t = std::vector<std::pair<std::string, std::string>>;
@@ -30,6 +33,9 @@ static const osrv::ServerConfigs* server_configs = nullptr;
 static std::shared_ptr<utility::digest::IDigestSession> digest_session;
 
 static std::unique_ptr<osrv::event::NotificationsManager> notifications_manager;
+
+static std::unordered_map<std::string, std::shared_ptr<osrv::event::CellMotionEventGenerator>> cell_motion_generators;
+static std::mutex cell_motion_generators_mtx;
 
 namespace pt = boost::property_tree;
 static pt::ptree EVENT_CONFIGS_TREE;
@@ -47,6 +53,43 @@ namespace osrv
 namespace event
 {
 static std::vector<utility::http::HandlerSP> handlers;
+
+std::vector<MotionState> get_motion_states()
+{
+        std::lock_guard lk(cell_motion_generators_mtx);
+
+        std::vector<MotionState> states;
+        states.reserve(cell_motion_generators.size());
+
+        for (const auto& [token, generator] : cell_motion_generators)
+        {
+                auto state = generator->GetState();
+                states.push_back({ state.token, state.enabled, state.state });
+        }
+
+        return states;
+}
+
+std::optional<MotionState> update_motion_state(const std::string& token, std::optional<bool> enabled, std::optional<bool> state)
+{
+        std::shared_ptr<osrv::event::CellMotionEventGenerator> generator;
+
+        {
+                std::lock_guard lk(cell_motion_generators_mtx);
+                auto it = cell_motion_generators.find(token);
+                if (it == cell_motion_generators.end())
+                        return std::nullopt;
+
+                generator = it->second;
+        }
+
+        const auto current_state = generator->GetState();
+
+        generator->UpdateState(enabled.value_or(current_state.enabled), state.value_or(current_state.state));
+
+        const auto updated_state = generator->GetState();
+        return MotionState{ updated_state.token, updated_state.enabled, updated_state.state };
+}
 
 void do_handler_request(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request);
 
@@ -487,16 +530,26 @@ void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_ins
 	// add cell motion alarms generator
 	if (EVENT_CONFIGS_TREE.get<bool>("CellMotion.GenerateEvents"))
 	{
-		auto cellmotion_generator = std::make_shared<osrv::event::CellMotionEventGenerator>(
-				EVENT_CONFIGS_TREE.get<std::string>("CellMotion.VideoSourceConfigurationToken"),
-				EVENT_CONFIGS_TREE.get<std::string>("CellMotion.VideoAnalyticsConfigurationToken"),
-				EVENT_CONFIGS_TREE.get<std::string>("CellMotion.Rule"),
-				EVENT_CONFIGS_TREE.get<std::string>("CellMotion.DataItemName"),
-				EVENT_CONFIGS_TREE.get<int>("CellMotion.EventGenerationTimeout"),
-				EVENT_CONFIGS_TREE.get<std::string>("CellMotion.Topic"), notifications_manager->GetIoContext(), *log_);
+                auto cellmotion_generator = std::make_shared<osrv::event::CellMotionEventGenerator>(
+                                EVENT_CONFIGS_TREE.get<std::string>("CellMotion.VideoSourceConfigurationToken"),
+                                EVENT_CONFIGS_TREE.get<std::string>("CellMotion.VideoAnalyticsConfigurationToken"),
+                                EVENT_CONFIGS_TREE.get<std::string>("CellMotion.Rule"),
+                                EVENT_CONFIGS_TREE.get<std::string>("CellMotion.DataItemName"),
+                                EVENT_CONFIGS_TREE.get<std::string>("CellMotion.Token", "CellMotionToken0"),
+                                EVENT_CONFIGS_TREE.get<int>("CellMotion.EventGenerationTimeout"),
+                                EVENT_CONFIGS_TREE.get<std::string>("CellMotion.Topic"), notifications_manager->GetIoContext(), *log_);
 
-		notifications_manager->AddGenerator(cellmotion_generator);
-	}
+                cellmotion_generator->UpdateState(
+                        EVENT_CONFIGS_TREE.get<bool>("CellMotion.Enabled", true),
+                        EVENT_CONFIGS_TREE.get<bool>("CellMotion.InitialState", false));
+
+                notifications_manager->AddGenerator(cellmotion_generator);
+
+                {
+                        std::lock_guard lk(cell_motion_generators_mtx);
+                        cell_motion_generators[cellmotion_generator->GetState().token] = cellmotion_generator;
+                }
+        }
 
 	// add audio detection alarms generator
 	if (EVENT_CONFIGS_TREE.get<bool>("AudioDetection.GenerateEvents"))

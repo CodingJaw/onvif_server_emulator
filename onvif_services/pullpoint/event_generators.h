@@ -6,11 +6,14 @@
 
 #include <functional>
 #include <deque>
+#include <optional>
 #include <unordered_map>
+#include <mutex>
 
 #include <boost/signals2.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/post.hpp>
 
 namespace osrv
 {
@@ -168,30 +171,41 @@ namespace osrv
 		{
 		public:
 			CellMotionEventGenerator(const std::string& /*vsc_token*/, const std::string& /*vac_token*/,
-				const std::string& /*rule*/,
-				const std::string& /*data_item_name*/,
-				int /*interval*/, const std::string& /*topic*/,
-				boost::asio::io_context& /*io_context*/, const ILogger& /*logger_*/);
+                        const std::string& /*rule*/,
+                        const std::string& /*data_item_name*/,
+                        const std::string& /*token*/,
+                        int /*interval*/, const std::string& /*topic*/,
+                        boost::asio::io_context& /*io_context*/, const ILogger& /*logger_*/);
 
-			// Inherited via IEventGenerator
-			std::deque<NotificationMessage> GenerateSynchronizationEvent() const override;
+                        // Inherited via IEventGenerator
+                        std::deque<NotificationMessage> GenerateSynchronizationEvent() const override;
 
-		protected:
-			void generate_event() override;
+                        struct MotionState
+                        {
+                                std::string token;
+                                bool enabled;
+                                bool state;
+                        };
 
-		private:
-			bool InvertState()
-			{
-				return state_ = !state_;
-			}
+                        MotionState GetState() const;
 
-		private:
-			bool state_ = false;
-			std::string video_source_configuration_token_;
-			std::string video_analytics_configuration_token_;
-			std::string rule_;
-			std::string data_item_name_;
-		};
+                        void UpdateState(bool enabled, bool state);
+
+                protected:
+                        void generate_event() override;
+
+                private:
+                        mutable std::mutex state_mutex_;
+                        bool state_ = false;
+                        bool enabled_ = true;
+                        bool state_dirty_ = false;
+                        std::optional<bool> last_reported_state_;
+                        std::string token_;
+                        std::string video_source_configuration_token_;
+                        std::string video_analytics_configuration_token_;
+                        std::string rule_;
+                        std::string data_item_name_;
+                };
 
 		class AudioDetectectionEventGenerator : public IEventGenerator
 		{

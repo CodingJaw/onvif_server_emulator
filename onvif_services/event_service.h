@@ -3,6 +3,8 @@
 #include "../HttpServerFwd.h"
 
 #include <string>
+#include <optional>
+#include <vector>
 
 class ILogger;
 
@@ -13,6 +15,16 @@ struct ServerConfigs;
 namespace event
 {
 void init_service(HttpServer& /*srv*/, const osrv::ServerConfigs& /*configs*/, const std::string& /*configs_path*/,
-									ILogger& /*logger*/);
+                                                                        ILogger& /*logger*/);
+
+struct MotionState
+{
+        std::string token;
+        bool enabled;
+        bool state;
+};
+
+std::vector<MotionState> get_motion_states();
+std::optional<MotionState> update_motion_state(const std::string& /*token*/, std::optional<bool> /*enabled*/, std::optional<bool> /*state*/);
 }
 } // namespace osrv
