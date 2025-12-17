@@ -23,6 +23,7 @@
 #include <boost/property_tree/json_parser.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -265,6 +266,82 @@ void Server::init()
 
         http_server_->resource["^/api/io/output$"]["POST"] = io_output_handler;
         http_server_->resource["^/api/io/output$"]["PUT"] = io_output_handler;
+
+        auto io_motion_handler = [this](const std::shared_ptr<HttpServer::Response>& response,
+                                        const std::shared_ptr<HttpServer::Request>& request) {
+                namespace pt = boost::property_tree;
+
+                std::stringstream ss;
+                ss << request->content.string();
+
+                pt::ptree request_body;
+                try
+                {
+                        pt::read_json(ss, request_body);
+                }
+                catch (const std::exception&)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Invalid JSON");
+                        return;
+                }
+
+                const auto token = request_body.get_optional<std::string>("token");
+                if (!token)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Missing token");
+                        return;
+                }
+
+                static const std::string MOTION_TOKEN = "CellMotionToken0";
+                if (*token != MOTION_TOKEN)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_not_found, "Unknown token");
+                        return;
+                }
+
+                auto current_state = osrv::event::get_cell_motion_state();
+                if (!current_state)
+                {
+                        response->write(SimpleWeb::StatusCode::server_error_internal_server_error, "Motion generator unavailable");
+                        return;
+                }
+
+                const auto enabled = request_body.get_optional<bool>("enabled").value_or(current_state->enabled);
+                const auto state = request_body.get_optional<bool>("state").value_or(current_state->state);
+                const auto delay_value = request_body.get_optional<int>("delay");
+                const auto clamped_delay = std::max(0, delay_value.value_or(0));
+
+                if (!request_body.get_child_optional("enabled") && !request_body.get_child_optional("state") && !delay_value)
+                {
+                        response->write(SimpleWeb::StatusCode::client_error_bad_request, "No fields to update");
+                        return;
+                }
+
+                if (!osrv::event::set_cell_motion_state(enabled, state, std::chrono::seconds(clamped_delay)))
+                {
+                        response->write(SimpleWeb::StatusCode::server_error_internal_server_error, "Failed to update motion state");
+                        return;
+                }
+
+                auto updated_state = osrv::event::get_cell_motion_state();
+
+                pt::ptree motion_node;
+                motion_node.put("token", *token);
+                motion_node.put("state", updated_state ? updated_state->state : state);
+                motion_node.put("enabled", updated_state ? updated_state->enabled : enabled);
+                motion_node.put("effective_state", updated_state ? updated_state->effective_state : (enabled && state));
+                motion_node.put("remaining_delay", updated_state && updated_state->remaining_delay_seconds ? *updated_state->remaining_delay_seconds : 0);
+
+                pt::ptree root;
+                root.add_child("motion", motion_node);
+
+                std::ostringstream os;
+                pt::write_json(os, root);
+                response->write(SimpleWeb::StatusCode::success_ok, os.str());
+        };
+
+        http_server_->resource["^/api/io/motion$"]["POST"] = io_motion_handler;
+        http_server_->resource["^/api/io/motion$"]["PUT"] = io_motion_handler;
 
         profiles_config_ = osrv::ServiceConfigs("media_profiles", configs_dir);
 

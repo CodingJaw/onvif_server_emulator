@@ -3,7 +3,7 @@
 
 #include "../utility/DateTime.hpp"
 
-
+#include <algorithm>
 namespace osrv
 {
 	namespace event
@@ -176,11 +176,11 @@ namespace osrv
                         }
                 }
 
-		MotionAlarmEventGenerator::MotionAlarmEventGenerator(const std::string& source_token,
-			int interval, const std::string& topic,
-			boost::asio::io_context& io_context, const ILogger& logger_)
-			: IEventGenerator(interval, topic, io_context, logger_),
-			source_token_(source_token)
+                MotionAlarmEventGenerator::MotionAlarmEventGenerator(const std::string& source_token,
+                        int interval, const std::string& topic,
+                        boost::asio::io_context& io_context, const ILogger& logger_)
+                        : IEventGenerator(interval, topic, io_context, logger_),
+                        source_token_(source_token)
 		{
 		}
 
@@ -188,32 +188,97 @@ namespace osrv
 		{
 			TRACE_LOG(logger_);
 
-			NotificationMessage nm;
-			nm.topic = notifications_topic_;
-			nm.utc_time = utility::datetime::system_utc_datetime();
-			nm.property_operation = "Initialized";
-			nm.source_item_descriptions.push_back({"Source", source_token_});
-			nm.data_name = "State";
-			nm.data_value = "false";
+                        NotificationMessage nm;
+                        nm.topic = notifications_topic_;
+                        nm.utc_time = utility::datetime::system_utc_datetime();
+                        nm.property_operation = "Initialized";
+                        nm.source_item_descriptions.push_back({"Source", source_token_});
+                        nm.data_name = "State";
 
-			return { nm };
-		}
+                        const auto state = GetState();
+                        nm.data_value = state.effective_state ? "true" : "false";
 
-		void MotionAlarmEventGenerator::generate_event()
-		{
-			TRACE_LOG(logger_);
+                        return { nm };
+                }
 
-			NotificationMessage nm;
-			nm.topic = notifications_topic_;
-			nm.utc_time = utility::datetime::system_utc_datetime();
-			nm.property_operation = "Changed";
-			nm.source_item_descriptions.push_back({"Source", source_token_});
-			nm.data_name = "State";
-			// each time invert state
-			nm.data_value = InvertState() ? "true" : "false";
+                void MotionAlarmEventGenerator::SetState(bool enabled, bool state, std::optional<std::chrono::seconds> delay)
+                {
+                        std::optional<NotificationMessage> notification;
+                        {
+                                std::lock_guard<std::mutex> lock(state_mutex_);
+                                enabled_ = enabled;
+                                state_ = state;
 
-			event_signal_(nm);
-		}
+                                if (delay && delay->count() > 0 && state)
+                                        expiration_ = std::chrono::steady_clock::now() + *delay;
+                                else
+                                        expiration_.reset();
+
+                                notification = build_notification_locked();
+                        }
+
+                        if (notification)
+                                event_signal_(*notification);
+                }
+
+                MotionAlarmEventGenerator::MotionState MotionAlarmEventGenerator::GetState() const
+                {
+                        std::lock_guard<std::mutex> lock(state_mutex_);
+
+                        MotionState result{ enabled_, state_, enabled_ && state_, std::nullopt };
+
+                        if (expiration_)
+                        {
+                                const auto now = std::chrono::steady_clock::now();
+                                if (now < *expiration_)
+                                {
+                                        const auto remaining = std::chrono::duration_cast<std::chrono::seconds>(*expiration_ - now);
+                                        result.remaining_delay_seconds = static_cast<int>(remaining.count());
+                                }
+                        }
+
+                        return result;
+                }
+
+                void MotionAlarmEventGenerator::generate_event()
+                {
+                        TRACE_LOG(logger_);
+
+                        std::optional<NotificationMessage> notification;
+                        {
+                                std::lock_guard<std::mutex> lock(state_mutex_);
+                                notification = build_notification_locked();
+                        }
+
+                        if (notification)
+                                event_signal_(*notification);
+                }
+
+                std::optional<NotificationMessage> MotionAlarmEventGenerator::build_notification_locked()
+                {
+                        const auto now = std::chrono::steady_clock::now();
+                        if (expiration_ && now >= *expiration_)
+                        {
+                                expiration_.reset();
+                                state_ = false;
+                        }
+
+                        const bool effective_state = enabled_ && state_;
+                        if (effective_state == last_emitted_state_)
+                                return std::nullopt;
+
+                        last_emitted_state_ = effective_state;
+
+                        NotificationMessage nm;
+                        nm.topic = notifications_topic_;
+                        nm.utc_time = utility::datetime::system_utc_datetime();
+                        nm.property_operation = "Changed";
+                        nm.source_item_descriptions.push_back({"Source", source_token_});
+                        nm.data_name = "State";
+                        nm.data_value = effective_state ? "true" : "false";
+
+                        return nm;
+                }
 
 		CellMotionEventGenerator::CellMotionEventGenerator(const std::string& vsc_token, const std::string& vac_token,
 			const std::string& rule,
@@ -234,34 +299,98 @@ namespace osrv
 			NotificationMessage nm;
 			nm.topic = notifications_topic_;
 			nm.utc_time = utility::datetime::system_utc_datetime();
-			nm.property_operation = "Initialized";
-			nm.source_item_descriptions.push_back({"VideoSourceConfigurationToken", video_source_configuration_token_});
-			nm.source_item_descriptions.push_back({"VideoAnalyticsConfigurationToken", video_analytics_configuration_token_});
-			nm.source_item_descriptions.push_back({"Rule", rule_});
-			nm.data_name = data_item_name_;
-			nm.data_value = "false";
+                        nm.property_operation = "Initialized";
+                        nm.source_item_descriptions.push_back({"VideoSourceConfigurationToken", video_source_configuration_token_});
+                        nm.source_item_descriptions.push_back({"VideoAnalyticsConfigurationToken", video_analytics_configuration_token_});
+                        nm.source_item_descriptions.push_back({"Rule", rule_});
+                        nm.data_name = data_item_name_;
 
-			return { nm };
-		}
+                        const auto state = GetState();
+                        nm.data_value = state.effective_state ? "true" : "false";
 
-		void CellMotionEventGenerator::generate_event()
-		{
-			TRACE_LOG(logger_);
+                        return { nm };
+                }
 
-			NotificationMessage nm;
-			nm.topic = notifications_topic_;
-			nm.utc_time = utility::datetime::system_utc_datetime();
-			nm.property_operation = "Changed";
-			nm.source_item_descriptions.push_back({"VideoSourceConfigurationToken", video_source_configuration_token_});
-			nm.source_item_descriptions.push_back({"VideoAnalyticsConfigurationToken", video_analytics_configuration_token_});
-			nm.source_item_descriptions.push_back({"Rule", rule_});
-			nm.data_name = data_item_name_;
-			nm.data_value = "false";
-			// each time invert state
-			nm.data_value = InvertState() ? "true" : "false";
+                void CellMotionEventGenerator::SetState(bool enabled, bool state, std::optional<std::chrono::seconds> delay)
+                {
+                        std::optional<NotificationMessage> notification;
+                        {
+                                std::lock_guard<std::mutex> lock(state_mutex_);
+                                enabled_ = enabled;
+                                state_ = state;
 
-			event_signal_(nm);
-		}
+                                if (delay && delay->count() > 0 && state)
+                                        expiration_ = std::chrono::steady_clock::now() + *delay;
+                                else
+                                        expiration_.reset();
+
+                                notification = build_notification_locked();
+                        }
+
+                        if (notification)
+                                event_signal_(*notification);
+                }
+
+                CellMotionEventGenerator::MotionState CellMotionEventGenerator::GetState() const
+                {
+                        std::lock_guard<std::mutex> lock(state_mutex_);
+
+                        MotionState result{ enabled_, state_, enabled_ && state_, std::nullopt };
+
+                        if (expiration_)
+                        {
+                                const auto now = std::chrono::steady_clock::now();
+                                if (now < *expiration_)
+                                {
+                                        const auto remaining = std::chrono::duration_cast<std::chrono::seconds>(*expiration_ - now);
+                                        result.remaining_delay_seconds = static_cast<int>(remaining.count());
+                                }
+                        }
+
+                        return result;
+                }
+
+                void CellMotionEventGenerator::generate_event()
+                {
+                        TRACE_LOG(logger_);
+
+                        std::optional<NotificationMessage> notification;
+                        {
+                                std::lock_guard<std::mutex> lock(state_mutex_);
+                                notification = build_notification_locked();
+                        }
+
+                        if (notification)
+                                event_signal_(*notification);
+                }
+
+                std::optional<NotificationMessage> CellMotionEventGenerator::build_notification_locked()
+                {
+                        const auto now = std::chrono::steady_clock::now();
+                        if (expiration_ && now >= *expiration_)
+                        {
+                                expiration_.reset();
+                                state_ = false;
+                        }
+
+                        const bool effective_state = enabled_ && state_;
+                        if (effective_state == last_emitted_state_)
+                                return std::nullopt;
+
+                        last_emitted_state_ = effective_state;
+
+                        NotificationMessage nm;
+                        nm.topic = notifications_topic_;
+                        nm.utc_time = utility::datetime::system_utc_datetime();
+                        nm.property_operation = "Changed";
+                        nm.source_item_descriptions.push_back({"VideoSourceConfigurationToken", video_source_configuration_token_});
+                        nm.source_item_descriptions.push_back({"VideoAnalyticsConfigurationToken", video_analytics_configuration_token_});
+                        nm.source_item_descriptions.push_back({"Rule", rule_});
+                        nm.data_name = data_item_name_;
+                        nm.data_value = effective_state ? "true" : "false";
+
+                        return nm;
+                }
 
 		AudioDetectectionEventGenerator::AudioDetectectionEventGenerator(const std::string& sct,
 			const std::string& acf, const std::string& r, const std::string& din,
