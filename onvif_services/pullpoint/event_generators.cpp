@@ -283,6 +283,13 @@ namespace osrv
                                         return;
 
                                 resolved_state = enabled_ && state_;
+
+                                if (last_reported_state_ && *last_reported_state_ == resolved_state)
+                                {
+                                        state_dirty_ = false;
+                                        return;
+                                }
+
                                 state_dirty_ = false;
                                 last_reported_state_ = resolved_state;
                         }
@@ -414,6 +421,13 @@ namespace osrv
                                         return;
 
                                 resolved_state = enabled_ && state_;
+
+                                if (last_reported_state_ && *last_reported_state_ == resolved_state)
+                                {
+                                        state_dirty_ = false;
+                                        return;
+                                }
+
                                 state_dirty_ = false;
                                 last_reported_state_ = resolved_state;
                         }
