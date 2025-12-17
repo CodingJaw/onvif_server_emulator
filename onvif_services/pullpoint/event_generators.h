@@ -162,13 +162,10 @@ namespace osrv
 
                         MotionState GetState() const;
 
-                        void UpdateState(bool enabled, bool state, std::optional<std::chrono::seconds> active_duration = std::nullopt);
+                        void UpdateState(bool enabled, bool state);
 
                 protected:
                         void generate_event() override;
-
-                private:
-                        void schedule_reset_timer(const std::optional<std::chrono::seconds>& active_duration, bool requested_state);
 
                 private:
                         mutable std::mutex state_mutex_;
@@ -177,8 +174,6 @@ namespace osrv
                         bool state_dirty_ = false;
                         std::optional<bool> last_reported_state_;
                         std::string source_token_;
-
-                        boost::asio::steady_timer auto_reset_timer_;
                 };
 
 		class CellMotionEventGenerator : public IEventGenerator
@@ -203,13 +198,10 @@ namespace osrv
 
                         MotionState GetState() const;
 
-                        void UpdateState(bool enabled, bool state, std::optional<std::chrono::seconds> active_duration = std::nullopt);
+                        void UpdateState(bool enabled, bool state);
 
                 protected:
                         void generate_event() override;
-
-                private:
-                        void schedule_reset_timer(const std::optional<std::chrono::seconds>& active_duration, bool requested_state);
 
                         mutable std::mutex state_mutex_;
                         bool state_ = false;
@@ -221,8 +213,6 @@ namespace osrv
                         std::string video_analytics_configuration_token_;
                         std::string rule_;
                         std::string data_item_name_;
-
-                        boost::asio::steady_timer auto_reset_timer_;
                 };
 
 		class AudioDetectectionEventGenerator : public IEventGenerator

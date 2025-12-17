@@ -5,7 +5,6 @@
 #include <string>
 #include <optional>
 #include <vector>
-#include <chrono>
 
 class ILogger;
 
@@ -26,6 +25,6 @@ struct MotionState
 };
 
 std::vector<MotionState> get_motion_states();
-std::optional<MotionState> update_motion_state(const std::string& /*token*/, std::optional<bool> /*enabled*/, std::optional<bool> /*state*/, std::optional<std::chrono::seconds> /*active_duration*/);
+std::optional<MotionState> update_motion_state(const std::string& /*token*/, std::optional<bool> /*enabled*/, std::optional<bool> /*state*/);
 }
 } // namespace osrv

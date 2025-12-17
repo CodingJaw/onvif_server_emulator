@@ -23,7 +23,6 @@
 #include <boost/property_tree/json_parser.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -318,13 +317,6 @@ void Server::init()
 
                 auto enabled = request_body.get_optional<bool>("enabled");
                 auto state = request_body.get_optional<bool>("state");
-                auto delay_seconds = request_body.get_optional<int>("delay");
-
-                std::optional<std::chrono::seconds> active_duration;
-                if (delay_seconds && *delay_seconds > 0)
-                {
-                        active_duration = std::chrono::seconds(*delay_seconds);
-                }
 
                 if (!enabled && !state)
                 {
@@ -334,8 +326,7 @@ void Server::init()
 
                 auto updated_state = osrv::event::update_motion_state(
                         *token, enabled ? std::optional<bool>(*enabled) : std::optional<bool>(),
-                        state ? std::optional<bool>(*state) : std::optional<bool>(),
-                        active_duration);
+                        state ? std::optional<bool>(*state) : std::optional<bool>());
 
                 if (!updated_state)
                 {

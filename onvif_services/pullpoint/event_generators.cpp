@@ -180,8 +180,7 @@ namespace osrv
                         int interval, const std::string& topic,
                         boost::asio::io_context& io_context, const ILogger& logger_)
                         : IEventGenerator(interval, topic, io_context, logger_),
-                        source_token_(source_token),
-                        auto_reset_timer_(io_context)
+                        source_token_(source_token)
                 {
                 }
 
@@ -212,7 +211,7 @@ namespace osrv
                         return MotionState{ enabled_, state_ };
                 }
 
-                void MotionAlarmEventGenerator::UpdateState(bool enabled, bool state, std::optional<std::chrono::seconds> active_duration)
+                void MotionAlarmEventGenerator::UpdateState(bool enabled, bool state)
                 {
                         bool should_emit = false;
 
@@ -227,47 +226,10 @@ namespace osrv
                                 }
                         }
 
-                        schedule_reset_timer(active_duration, state);
-
                         if (should_emit)
                         {
                                 boost::asio::post(io_context_, [this]() { generate_event(); });
                         }
-                }
-
-                void MotionAlarmEventGenerator::schedule_reset_timer(const std::optional<std::chrono::seconds>& active_duration, bool requested_state)
-                {
-                        boost::asio::post(io_context_, [this, active_duration, requested_state]() {
-                                boost::system::error_code ec;
-                                auto_reset_timer_.cancel(ec);
-
-                                if (!active_duration || active_duration->count() <= 0 || !requested_state)
-                                {
-                                        return;
-                                }
-
-                                auto_reset_timer_.expires_after(*active_duration);
-                                auto_reset_timer_.async_wait([this](const boost::system::error_code& error) {
-                                        if (error == boost::asio::error::operation_aborted)
-                                                return;
-
-                                        bool should_emit = false;
-                                        {
-                                                std::lock_guard lk(state_mutex_);
-                                                if (!state_)
-                                                        return;
-
-                                                state_ = false;
-                                                state_dirty_ = true;
-                                                should_emit = true;
-                                        }
-
-                                        if (should_emit)
-                                        {
-                                                boost::asio::post(io_context_, [this]() { generate_event(); });
-                                        }
-                                });
-                        });
                 }
 
                 void MotionAlarmEventGenerator::generate_event()
@@ -316,7 +278,6 @@ namespace osrv
                         ,rule_(rule)
                         ,data_item_name_(din)
                         ,token_(token)
-                        ,auto_reset_timer_(io_context)
                 {
                 }
 
@@ -350,7 +311,7 @@ namespace osrv
                         return MotionState{ token_, enabled_, state_ };
                 }
 
-                void CellMotionEventGenerator::UpdateState(bool enabled, bool state, std::optional<std::chrono::seconds> active_duration)
+                void CellMotionEventGenerator::UpdateState(bool enabled, bool state)
                 {
                         bool should_emit = false;
 
@@ -365,47 +326,10 @@ namespace osrv
                                 }
                         }
 
-                        schedule_reset_timer(active_duration, state);
-
                         if (should_emit)
                         {
                                 boost::asio::post(io_context_, [this]() { generate_event(); });
                         }
-                }
-
-                void CellMotionEventGenerator::schedule_reset_timer(const std::optional<std::chrono::seconds>& active_duration, bool requested_state)
-                {
-                        boost::asio::post(io_context_, [this, active_duration, requested_state]() {
-                                boost::system::error_code ec;
-                                auto_reset_timer_.cancel(ec);
-
-                                if (!active_duration || active_duration->count() <= 0 || !requested_state)
-                                {
-                                        return;
-                                }
-
-                                auto_reset_timer_.expires_after(*active_duration);
-                                auto_reset_timer_.async_wait([this](const boost::system::error_code& error) {
-                                        if (error == boost::asio::error::operation_aborted)
-                                                return;
-
-                                        bool should_emit = false;
-                                        {
-                                                std::lock_guard lk(state_mutex_);
-                                                if (!state_)
-                                                        return;
-
-                                                state_ = false;
-                                                state_dirty_ = true;
-                                                should_emit = true;
-                                        }
-
-                                        if (should_emit)
-                                        {
-                                                boost::asio::post(io_context_, [this]() { generate_event(); });
-                                        }
-                                });
-                        });
                 }
 
                 void CellMotionEventGenerator::generate_event()
