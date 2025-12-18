@@ -311,18 +311,13 @@ namespace osrv
                         return { nm };
                 }
 
-                void CellMotionEventGenerator::SetState(bool enabled, bool state, std::optional<std::chrono::seconds> delay)
+                void CellMotionEventGenerator::SetState(bool enabled, bool state, std::optional<std::chrono::seconds> /*delay*/)
                 {
                         std::optional<NotificationMessage> notification;
                         {
                                 std::lock_guard<std::mutex> lock(state_mutex_);
                                 enabled_ = enabled;
                                 state_ = state;
-
-                                if (delay && delay->count() > 0 && state)
-                                        expiration_ = std::chrono::steady_clock::now() + *delay;
-                                else
-                                        expiration_.reset();
 
                                 notification = build_notification_locked();
                         }
@@ -336,16 +331,6 @@ namespace osrv
                         std::lock_guard<std::mutex> lock(state_mutex_);
 
                         MotionState result{ enabled_, state_, enabled_ && state_, std::nullopt };
-
-                        if (expiration_)
-                        {
-                                const auto now = std::chrono::steady_clock::now();
-                                if (now < *expiration_)
-                                {
-                                        const auto remaining = std::chrono::duration_cast<std::chrono::seconds>(*expiration_ - now);
-                                        result.remaining_delay_seconds = static_cast<int>(remaining.count());
-                                }
-                        }
 
                         return result;
                 }
@@ -366,13 +351,6 @@ namespace osrv
 
                 std::optional<NotificationMessage> CellMotionEventGenerator::build_notification_locked()
                 {
-                        const auto now = std::chrono::steady_clock::now();
-                        if (expiration_ && now >= *expiration_)
-                        {
-                                expiration_.reset();
-                                state_ = false;
-                        }
-
                         const bool effective_state = enabled_ && state_;
                         if (effective_state == last_emitted_state_)
                                 return std::nullopt;
