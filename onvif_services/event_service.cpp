@@ -30,6 +30,8 @@ static const osrv::ServerConfigs* server_configs = nullptr;
 static std::shared_ptr<utility::digest::IDigestSession> digest_session;
 
 static std::unique_ptr<osrv::event::NotificationsManager> notifications_manager;
+// Cell motion events are expected to be driven externally (Rust integration or REST API),
+// so this generator should only be manipulated through the exported helpers below.
 static std::shared_ptr<osrv::event::CellMotionEventGenerator> cellmotion_generator;
 
 namespace pt = boost::property_tree;

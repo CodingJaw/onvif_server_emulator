@@ -213,12 +213,11 @@ namespace osrv
                         bool enabled_ = true;
                         bool state_ = false;
                         bool last_emitted_state_ = false;
-                        std::optional<std::chrono::steady_clock::time_point> expiration_;
                         mutable std::mutex state_mutex_;
                         std::string video_source_configuration_token_;
                         std::string video_analytics_configuration_token_;
                         std::string rule_;
-			std::string data_item_name_;
+                        std::string data_item_name_;
 		};
 
 		class AudioDetectectionEventGenerator : public IEventGenerator
