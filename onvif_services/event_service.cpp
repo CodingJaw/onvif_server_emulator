@@ -5,6 +5,7 @@
 #include "../utility/HttpHelper.h"
 #include "../utility/SoapHelper.h"
 #include "../utility/XmlParser.h"
+#include "event_service_utils.h"
 #include "device_service.h"
 #include "pullpoint/pull_point.h"
 
@@ -18,6 +19,7 @@
 #include <boost/property_tree/xml_parser.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
 
+#include <algorithm>
 #include <map>
 #include <optional>
 #include <vector>
@@ -41,6 +43,7 @@ static std::map<std::string, std::string> XML_NAMESPACES;
 
 static std::string CONFIGS_PATH; // will be init with the service initialization
 static const std::string EVENT_CONFIGS_FILE = "event.config";
+static constexpr int DEFAULT_MAX_MESSAGE_LIMIT = 50;
 
 // List of implemented methods of Events service port
 const std::string GetEventProperties = "GetEventProperties";
@@ -66,6 +69,39 @@ namespace osrv
 {
 namespace event
 {
+MessageLimitValidationResult validate_message_limit(const pt::ptree& request_tree, int default_message_limit,
+        int max_message_limit)
+{
+        const auto message_limit_node = exns::find_hierarchy("Envelope.Body.PullMessages.MessageLimit", request_tree);
+
+        MessageLimitValidationResult result{};
+        result.message_limit = std::max(1, std::min(default_message_limit, max_message_limit));
+
+        if (message_limit_node.empty())
+                return result;
+
+        try
+        {
+                const auto parsed_value = std::stoi(message_limit_node);
+                if (parsed_value <= 0 || parsed_value > max_message_limit)
+                {
+                        result.valid = false;
+                        result.reason = "MessageLimit must be between 1 and " + std::to_string(max_message_limit);
+                        return result;
+                }
+
+                result.valid = true;
+                result.message_limit = parsed_value;
+                return result;
+        }
+        catch (const std::exception&)
+        {
+                result.valid = false;
+                result.reason = "MessageLimit is not a valid integer";
+                return result;
+        }
+}
+
 static std::vector<utility::http::HandlerSP> handlers;
 
 void do_handler_request(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request);
@@ -210,7 +246,32 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
         if (header_action == ACTION_PULLMESSAGES)
         {
                 auto timeout = exns::find_hierarchy("Envelope.Body.PullMessages.Timeout", request_tree);
-                auto messages_limit = std::stoi((exns::find_hierarchy("Envelope.Body.PullMessages.MessageLimit", request_tree)));
+                const auto max_message_limit = EVENT_CONFIGS_TREE.get<int>("PullPoint.MaxMessages", DEFAULT_MAX_MESSAGE_LIMIT);
+                const auto default_message_limit = EVENT_CONFIGS_TREE.get<int>("PullPoint.DefaultMessageLimit", max_message_limit);
+
+                const auto message_limit_validation = validate_message_limit(request_tree, default_message_limit, max_message_limit);
+                if (!message_limit_validation.valid)
+                {
+                        auto envelope_tree = utility::soap::getEnvelopeTree(XML_NAMESPACES);
+
+                        boost::property_tree::ptree code_node;
+                        code_node.add("s:Value", "s:Sender");
+                        code_node.add("s:Subcode.s:Value", "ter:InvalidArgVal");
+                        envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", message_limit_validation.reason);
+                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+                        boost::property_tree::ptree root_tree;
+                        root_tree.put_child("s:Envelope", envelope_tree);
+
+                        std::ostringstream os;
+                        boost::property_tree::write_xml(os, root_tree);
+
+                        utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+                        return;
+                }
+
+                auto messages_limit = message_limit_validation.message_limit;
 
                 int request_timeout_seconds = EVENT_CONFIGS_TREE.get<int>("PullPoint.Timeout");
                 if (!timeout.empty())
@@ -567,10 +628,11 @@ void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_ins
         const auto subscription_lifetime_seconds = EVENT_CONFIGS_TREE.get<int>("PullPoint.SubscriptionLifetimeSeconds", 300);
         const auto min_renew_interval_seconds = EVENT_CONFIGS_TREE.get<int>("PullPoint.MinRenewIntervalSeconds", 1);
         const auto pullpoint_timeout = EVENT_CONFIGS_TREE.get<int>("PullPoint.Timeout");
+        const auto max_message_limit = EVENT_CONFIGS_TREE.get<int>("PullPoint.MaxMessages", DEFAULT_MAX_MESSAGE_LIMIT);
 
         notifications_manager =
                         std::unique_ptr<osrv::event::NotificationsManager>(new osrv::event::NotificationsManager(logger, XML_NAMESPACES,
-                                        subscription_lifetime_seconds, min_renew_interval_seconds, pullpoint_timeout));
+                                        subscription_lifetime_seconds, min_renew_interval_seconds, pullpoint_timeout, max_message_limit));
 
 	// TODO: reading events generating interval from configs
 	// add event generators
