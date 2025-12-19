@@ -394,6 +394,37 @@ BOOST_AUTO_TEST_CASE(allows_concurrent_subscriptions_to_receive_events)
         BOOST_TEST(received_two.front().topic == generator->Topic());
 }
 
+BOOST_AUTO_TEST_CASE(caps_backlog_for_idle_subscriptions)
+{
+        using namespace osrv::event;
+        boost::asio::io_context io;
+        DummyLogger logger;
+        auto pullpoint = std::make_shared<PullPoint>("onvif/event_service/s0", io, logger);
+        pullpoint->SetMaxMessages(3);
+
+        for (int i = 0; i < 5; ++i)
+        {
+                NotificationMessage message;
+                message.topic = "tns1:RuleEngine/CellMotionDetector";
+                message.utc_time = utility::datetime::system_utc_datetime();
+                message.property_operation = "Changed";
+                message.data_name = "State";
+                message.data_value = std::to_string(i);
+
+                pullpoint->Notify(std::move(message));
+        }
+
+        std::deque<NotificationMessage> received;
+        pullpoint->PullMessages([&received](std::shared_ptr<PullPoint>, std::deque<NotificationMessage>&& events,
+                        std::shared_ptr<HttpServer::Response>) {
+                received = std::move(events);
+        }, nullptr, 1, 10);
+
+        BOOST_TEST(received.size() == 3u);
+        BOOST_TEST(received.front().data_value == "2");
+        BOOST_TEST(received.back().data_value == "4");
+}
+
 BOOST_AUTO_TEST_CASE(expired_subscriptions_do_not_affect_active_ones)
 {
         using namespace osrv::event;

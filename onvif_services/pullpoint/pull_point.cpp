@@ -49,12 +49,19 @@ namespace osrv
                                 });
                 }
 
-		void PullPoint::Notify(NotificationMessage&& event)
-		{
-			events_.push_back(std::move(event));
+                void PullPoint::Notify(NotificationMessage&& event)
+                {
+                        if (max_messages_ > 0 && events_.size() >= static_cast<size_t>(max_messages_))
+                        {
+                                const auto to_trim = events_.size() - static_cast<size_t>(max_messages_) + 1;
+                                for (size_t i = 0; i < to_trim; ++i)
+                                        events_.pop_front();
+                        }
 
-			response_to_pullmessages();
-		}
+                        events_.push_back(std::move(event));
+
+                        response_to_pullmessages();
+                }
 		
 		void PullPoint::response_to_pullmessages()
 		{
