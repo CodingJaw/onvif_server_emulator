@@ -9,6 +9,7 @@
 #include <sstream>
 #include <algorithm>
 #include <vector>
+#include <optional>
 
 #include <boost/property_tree/xml_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
@@ -254,7 +255,8 @@ namespace osrv
 			}
 		}
 
-                void NotificationsManager::Renew(std::shared_ptr<HttpServer::Response> response, const std::string& header_to, const std::string& header_msg_id)
+                void NotificationsManager::Renew(std::shared_ptr<HttpServer::Response> response, const std::string& header_to, const std::string& header_msg_id,
+                        std::optional<int> requested_lease_seconds)
                 {
                         if (!xml_namespaces_)
                                 throw std::runtime_error("XML namespaces not initialized in NotificationManager!");
@@ -308,12 +310,16 @@ namespace osrv
                                 return;
                         }
 
+                        const int requested_seconds = requested_lease_seconds.value_or(subscription_lease_seconds_);
+                        const int max_lease_seconds = std::max(subscription_lease_seconds_, 1);
+                        const int granted_seconds = std::clamp(requested_seconds, 1, max_lease_seconds);
+
                         bool renewed = (*pp_it)->TryRenew(now,
-                                        boost::posix_time::seconds(subscription_lease_seconds_),
+                                        boost::posix_time::seconds(granted_seconds),
                                         boost::posix_time::seconds(min_renew_interval_seconds_));
                         if (renewed)
                         {
-                                (*pp_it)->RefreshTerminationTimer(std::chrono::seconds(subscription_lease_seconds_),
+                                (*pp_it)->RefreshTerminationTimer(std::chrono::seconds(granted_seconds),
                                 [this, weak_pp = std::weak_ptr<PullPoint>(*pp_it)](const std::string& ref) {
                                         auto shared_pp = weak_pp.lock();
                                         if (shared_pp)
