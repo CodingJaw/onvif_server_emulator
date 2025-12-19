@@ -503,6 +503,20 @@ BOOST_AUTO_TEST_CASE(expired_subscriptions_do_not_affect_active_ones)
         BOOST_TEST(generator->ConnectionCount() == 0u);
 }
 
+BOOST_AUTO_TEST_CASE(set_synchronization_point_rejects_unknown_subscription)
+{
+        using namespace osrv::event;
+
+        DummyLogger logger;
+        std::map<std::string, std::string> namespaces;
+        NotificationsManager manager(logger, namespaces, 1, 0, 60);
+
+        BOOST_CHECK_EXCEPTION(manager.SetSynchronizationPoint("unknown-subscription"), std::runtime_error,
+                                        [](const std::runtime_error& ex) {
+                                                return std::string(ex.what()) == "Invalid subscription reference";
+                                        });
+}
+
 BOOST_AUTO_TEST_CASE(renewed_subscription_outlives_peers)
 {
         using namespace osrv::event;

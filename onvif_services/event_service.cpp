@@ -301,11 +301,11 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
                 const auto requested_lease_seconds = parse_requested_lease_seconds(request_tree);
                 notifications_manager->Renew(response, header_to, header_message_id, requested_lease_seconds);
         }
-	else if (header_action == ACTION_SETSYNCHRONIZATIONPOINT)
-	{
-		try
-		{
-			notifications_manager->SetSynchronizationPoint(header_to);
+                else if (header_action == ACTION_SETSYNCHRONIZATIONPOINT)
+        {
+                try
+                {
+                        notifications_manager->SetSynchronizationPoint(header_to);
 
 			namespace pt = boost::property_tree;
 			auto envelope_tree = utility::soap::getEnvelopeTree(XML_NAMESPACES);
@@ -322,13 +322,28 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
 			std::ostringstream os;
 			pt::write_xml(os, root_tree);
 
-			utility::http::fillResponseWithHeaders(*response, os.str());
-		}
-		catch (const std::exception& e)
-		{
-			utility::http::fillResponseWithHeaders(*response, e.what(), utility::http::ClientErrorDefaultWriter);
-		}
-	}
+                        utility::http::fillResponseWithHeaders(*response, os.str());
+                }
+                catch (const std::exception& e)
+                {
+                        auto envelope_tree = utility::soap::getEnvelopeTree(XML_NAMESPACES);
+
+                        boost::property_tree::ptree code_node;
+                        code_node.add("s:Value", "s:Sender");
+                        code_node.add("s:Subcode.s:Value", "wstop:ResourceUnknown");
+                        envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", e.what());
+                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+                        boost::property_tree::ptree root_tree;
+                        root_tree.put_child("s:Envelope", envelope_tree);
+
+                        std::ostringstream os;
+                        boost::property_tree::write_xml(os, root_tree);
+
+                        utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+                }
+        }
 	else if (header_action == ACTION_UNSUBSCRIBE)
 	{
 		notifications_manager->Unsubscribe(header_to);
