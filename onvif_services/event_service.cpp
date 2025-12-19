@@ -81,15 +81,18 @@ struct CreatePullPointSubscriptionHandler : public utility::http::RequestHandler
         OVERLOAD_REQUEST_HANDLER
         {
                 auto request_tree = exns::to_ptree(request->content.string());
-                std::vector<std::string> topic_filters;
+                std::vector<osrv::event::TopicExpression> topic_filters;
                 const auto topic_nodes = exns::find_hierarchy_elements(
                                 "Envelope.Body.CreatePullPointSubscription.Filter.TopicExpression", request_tree);
                 for (const auto& topic_node : topic_nodes)
                 {
-                        auto topic_value = topic_node->second.get_value<std::string>("");
-                        boost::algorithm::trim(topic_value);
-                        if (!topic_value.empty())
-                                topic_filters.push_back(std::move(topic_value));
+                        osrv::event::TopicExpression expr;
+                        expr.dialect = topic_node->second.get<std::string>("<xmlattr>.Dialect", "");
+                        expr.expression = topic_node->second.get_value<std::string>("");
+
+                        boost::algorithm::trim(expr.expression);
+                        if (!expr.expression.empty())
+                                topic_filters.push_back(std::move(expr));
                 }
 
                 pt::ptree analytics_configs;
@@ -101,7 +104,31 @@ struct CreatePullPointSubscriptionHandler : public utility::http::RequestHandler
                 const auto base_address = build_event_service_base_address();
                 const auto event_service_endpoint = build_event_service_endpoint();
 
-                auto pullpoint = notifications_manager->CreatePullPoint(topic_filters);
+                std::shared_ptr<osrv::event::PullPoint> pullpoint;
+                try
+                {
+                        pullpoint = notifications_manager->CreatePullPoint(topic_filters);
+                }
+                catch (const std::exception& e)
+                {
+                        auto envelope_tree = utility::soap::getEnvelopeTree(XML_NAMESPACES);
+
+                        boost::property_tree::ptree code_node;
+                        code_node.add("s:Value", "s:Sender");
+                        code_node.add("s:Subcode.s:Value", "ter:InvalidArgVal");
+                        envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", e.what());
+                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+                        boost::property_tree::ptree root_tree;
+                        root_tree.put_child("s:Envelope", envelope_tree);
+
+                        std::ostringstream os;
+                        boost::property_tree::write_xml(os, root_tree);
+
+                        utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+                        return;
+                }
                 const auto subscription_address = base_address + "/" + pullpoint->GetSubscriptionReference();
                 pullpoint->SetSubscriptionAddress(subscription_address);
                 pullpoint->SetServiceEndpoint(event_service_endpoint);

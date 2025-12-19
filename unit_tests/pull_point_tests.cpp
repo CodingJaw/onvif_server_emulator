@@ -6,6 +6,9 @@
 
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
+#include <map>
+#include <stdexcept>
+#include <vector>
 
 namespace
 {
@@ -23,6 +26,33 @@ struct DummyLogger : ILogger
         void Info(const std::string&) const override {}
         void Debug(const std::string&) const override {}
         void Trace(const std::string&) const override {}
+};
+
+class TestEventGenerator : public osrv::event::IEventGenerator
+{
+public:
+        TestEventGenerator(const std::string& topic, boost::asio::io_context& io, const ILogger& logger)
+                        : osrv::event::IEventGenerator(1, topic, io, logger)
+        {
+        }
+
+        std::deque<osrv::event::NotificationMessage> GenerateSynchronizationEvent() const override
+        {
+                return {};
+        }
+
+        void Emit(osrv::event::NotificationMessage msg)
+        {
+                event_signal_(std::move(msg));
+        }
+
+        size_t ConnectionCount() const
+        {
+                return event_signal_.num_slots();
+        }
+
+protected:
+        void generate_event() override {}
 };
 }
 
@@ -220,4 +250,82 @@ BOOST_AUTO_TEST_CASE(expiration_detection)
 
         BOOST_TEST(false == pullpoint->IsExpired(created + boost::posix_time::seconds(5)));
         BOOST_TEST(true == pullpoint->IsExpired(created + boost::posix_time::seconds(15)));
+}
+
+BOOST_AUTO_TEST_CASE(filters_match_requested_topics)
+{
+        using namespace osrv::event;
+        DummyLogger logger;
+        std::map<std::string, std::string> namespaces;
+        NotificationsManager manager(logger, namespaces, 300, 1, 60);
+
+        auto& io = manager.GetIoContext();
+        auto matching_gen = std::make_shared<TestEventGenerator>("tns1:RuleEngine/CellMotionDetector/Motion", io, logger);
+        auto other_gen = std::make_shared<TestEventGenerator>("tns1:Device/Trigger/DigitalInput", io, logger);
+
+        manager.AddGenerator(matching_gen);
+        manager.AddGenerator(other_gen);
+
+        std::vector<TopicExpression> topic_filters{{"http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet",
+                "tns1:RuleEngine/CellMotionDetector"}};
+
+        auto pullpoint = manager.CreatePullPoint(topic_filters);
+        (void)pullpoint;
+
+        BOOST_TEST(matching_gen->ConnectionCount() == 1u);
+        BOOST_TEST(other_gen->ConnectionCount() == 0u);
+}
+
+BOOST_AUTO_TEST_CASE(rejects_unknown_topic_expression_dialect)
+{
+        using namespace osrv::event;
+        DummyLogger logger;
+        std::map<std::string, std::string> namespaces;
+        NotificationsManager manager(logger, namespaces, 300, 1, 60);
+
+        std::vector<TopicExpression> topic_filters{{"http://example.com/unsupported", "tns1:RuleEngine/CellMotionDetector"}};
+
+        BOOST_CHECK_THROW(manager.CreatePullPoint(topic_filters), std::invalid_argument);
+}
+
+BOOST_AUTO_TEST_CASE(allows_concurrent_subscriptions_to_receive_events)
+{
+        using namespace osrv::event;
+        DummyLogger logger;
+        std::map<std::string, std::string> namespaces;
+        NotificationsManager manager(logger, namespaces, 300, 1, 60);
+
+        auto& io = manager.GetIoContext();
+        auto generator = std::make_shared<TestEventGenerator>("tns1:RuleEngine/CellMotionDetector/Motion", io, logger);
+        manager.AddGenerator(generator);
+
+        auto subscription_one = manager.CreatePullPoint({});
+        auto subscription_two = manager.CreatePullPoint({});
+
+        std::deque<NotificationMessage> received_one;
+        std::deque<NotificationMessage> received_two;
+
+        subscription_one->PullMessages([&received_one](std::shared_ptr<PullPoint>, std::deque<NotificationMessage>&& events,
+                        std::shared_ptr<HttpServer::Response>) {
+                received_one = std::move(events);
+        }, nullptr, 1, 10);
+
+        subscription_two->PullMessages([&received_two](std::shared_ptr<PullPoint>, std::deque<NotificationMessage>&& events,
+                        std::shared_ptr<HttpServer::Response>) {
+                received_two = std::move(events);
+        }, nullptr, 1, 10);
+
+        NotificationMessage message;
+        message.topic = generator->Topic();
+        message.utc_time = utility::datetime::system_utc_datetime();
+        message.property_operation = "Changed";
+        message.data_name = "State";
+        message.data_value = "true";
+
+        generator->Emit(message);
+
+        BOOST_TEST(received_one.size() == 1u);
+        BOOST_TEST(received_two.size() == 1u);
+        BOOST_TEST(received_one.front().topic == generator->Topic());
+        BOOST_TEST(received_two.front().topic == generator->Topic());
 }

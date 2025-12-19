@@ -30,18 +30,24 @@ namespace osrv
 {
 	namespace event
 	{
-		struct NotificationMessage
-		{
-			std::string topic;
-			std::string utc_time;
-			std::string property_operation;
+                struct NotificationMessage
+                {
+                        std::string topic;
+                        std::string utc_time;
+                        std::string property_operation;
 
 			// { name, value }
 			StringPairsList_t source_item_descriptions;
 
-			std::string data_name;
-			std::string data_value;
-		};
+                        std::string data_name;
+                        std::string data_value;
+                };
+
+                struct TopicExpression
+                {
+                        std::string dialect;
+                        std::string expression;
+                };
 
                 class PullPoint : public std::enable_shared_from_this<PullPoint>
                 {
@@ -254,7 +260,7 @@ namespace osrv
 			// It's required to generate unique link for each subscriber 
 			// Also need to schedule a subscription expiration timeout - and in that case delete subscription
 			// Returns the created subscription's reference
-                        std::shared_ptr<PullPoint> CreatePullPoint(const std::vector<std::string>& topic_filters);
+                        std::shared_ptr<PullPoint> CreatePullPoint(const std::vector<TopicExpression>& topic_filters);
 
 			// If there are messages for specified subscriber - return them immediately
 			// Otherwise wait until timeout or any events will be generated 
