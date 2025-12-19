@@ -18,6 +18,10 @@
 
 #include <map>
 #include <vector>
+#include <algorithm>
+#include <limits>
+#include <optional>
+#include <regex>
 
 using StringPairsList_t = std::vector<std::pair<std::string, std::string>>;
 
@@ -49,6 +53,54 @@ namespace event
 static std::vector<utility::http::HandlerSP> handlers;
 
 void do_handler_request(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request);
+
+std::optional<int> parse_timeout_seconds(const std::string& timeout_value)
+{
+        if (timeout_value.empty())
+                return std::nullopt;
+
+        static const std::regex timeout_regex("^PT(\\d+)([HMS])?$");
+
+        std::smatch match;
+        if (!std::regex_match(timeout_value, match, timeout_regex))
+                return std::nullopt;
+
+        long long magnitude = std::stoll(match[1].str());
+        char unit = match[2].str().empty() ? 'S' : match[2].str()[0];
+
+        long long multiplier = 1;
+        switch (unit)
+        {
+        case 'H':
+                multiplier = 3600;
+                break;
+        case 'M':
+                multiplier = 60;
+                break;
+        default:
+                multiplier = 1;
+        }
+
+        long long total = magnitude * multiplier;
+        total = std::min<long long>(total, std::numeric_limits<int>::max());
+
+        return static_cast<int>(total);
+}
+
+std::optional<int> parse_message_limit(const std::string& limit_value)
+{
+        if (limit_value.empty())
+                return std::nullopt;
+
+        try
+        {
+                return std::stoi(limit_value);
+        }
+        catch (const std::exception&)
+        {
+                return std::nullopt;
+        }
+}
 
 // PullPoint handlers
 struct CreatePullPointSubscriptionHandler : public utility::http::RequestHandlerBase
@@ -113,17 +165,24 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
 	const static std::string ACTION_RENEWREQUEST = "http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/RenewRequest";
 	const static std::string ACTION_SETSYNCHRONIZATIONPOINT =
 			"http://www.onvif.org/ver10/events/wsdl/PullPointSubscription/SetSynchronizationPointRequest";
-	const static std::string ACTION_UNSUBSCRIBE =
-			"http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/UnsubscribeRequest";
+        const static std::string ACTION_UNSUBSCRIBE =
+                        "http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/UnsubscribeRequest";
 
-	if (header_action == ACTION_PULLMESSAGES)
-	{
-		auto timeout = exns::find_hierarchy("Envelope.Body.PullMessages.Timeout", request_tree);
-		auto messages_limit = std::stoi((exns::find_hierarchy("Envelope.Body.PullMessages.MessageLimit", request_tree)));
+        if (header_action == ACTION_PULLMESSAGES)
+        {
+                auto timeout_raw = exns::find_hierarchy("Envelope.Body.PullMessages.Timeout", request_tree);
+                auto messages_limit_raw = exns::find_hierarchy("Envelope.Body.PullMessages.MessageLimit", request_tree);
 
-		// NOTE: current implementation reads a timeout from the configuration and ignores a value in the request
-		notifications_manager->PullMessages(response, header_to, header_message_id,
-																				EVENT_CONFIGS_TREE.get<int>("PullPoint.Timeout"), messages_limit);
+                auto parsed_timeout = parse_timeout_seconds(timeout_raw);
+                auto timeout_seconds = parsed_timeout.value_or(EVENT_CONFIGS_TREE.get<int>("PullPoint.Timeout"));
+
+                auto parsed_messages_limit = parse_message_limit(messages_limit_raw);
+                auto messages_limit = parsed_messages_limit.value_or(0);
+                if (messages_limit < 0)
+                        messages_limit = 0;
+
+                notifications_manager->PullMessages(response, header_to, header_message_id,
+                        timeout_seconds, messages_limit);
 
 		// If there was no error, a response will be send asynchronously
 	}

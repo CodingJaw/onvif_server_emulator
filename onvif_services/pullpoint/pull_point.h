@@ -4,6 +4,7 @@
 #include "../utility/DateTime.hpp"
 #include "event_generators.h"
 
+#include <chrono>
 #include <deque>
 #include <string>
 #include <thread>
@@ -47,16 +48,18 @@ namespace osrv
 				std::deque<NotificationMessage>&& events,
 				std::shared_ptr<HttpServer::Response>)>;
 
-			PullPoint(const std::string& subscription_reference, boost::asio::io_context& io_context, const ILogger& logger)
-				: logger_(&logger)
-				, io_context_(io_context)
-				, subscription_ref_(subscription_reference)
-				, timeout_timer_(io_context)
-				, max_messages_(50)
-				, is_client_waiting_(false)
-			{
-				current_time_ = boost::posix_time::microsec_clock::universal_time();
-			}
+                        PullPoint(const std::string& subscription_reference, boost::asio::io_context& io_context, const ILogger& logger)
+                                : logger_(&logger)
+                                , io_context_(io_context)
+                                , pullmessages_timer_(io_context)
+                                , current_time_(boost::posix_time::microsec_clock::universal_time())
+                                , subscription_ref_(subscription_reference)
+                                , max_messages_(50)
+                                , pullmessages_timeout_(std::chrono::seconds(timeout_interval_))
+                                , pullmessages_message_limit_(max_messages_)
+                                , is_client_waiting_(false)
+                        {
+                        }
 
 			~PullPoint()
 			{
@@ -89,7 +92,8 @@ namespace osrv
 			}
 
 			// This method is called when a subscriber want to pull events
-			void PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response);
+                        void PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response,
+                                int timeout, int msg_limit);
 
 			// This is method by which event generators should pass events,
 			// a new event should be stored to the queue
@@ -122,14 +126,17 @@ namespace osrv
 		private:
 			const ILogger* logger_;
 			boost::asio::io_context& io_context_;
-			boost::asio::steady_timer timeout_timer_;
+                        boost::asio::steady_timer pullmessages_timer_;
 
 			boost::posix_time::ptime current_time_;
 
 			const std::string subscription_ref_;
-			int timeout_interval_ = 60;
+                        int timeout_interval_ = 60;
 
-			int max_messages_;
+                        int max_messages_;
+
+                        std::chrono::seconds pullmessages_timeout_;
+                        size_t pullmessages_message_limit_;
 
 			std::deque<NotificationMessage> events_;
 

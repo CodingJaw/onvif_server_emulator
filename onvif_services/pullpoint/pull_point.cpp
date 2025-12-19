@@ -17,29 +17,36 @@ namespace osrv
 
 	namespace event {
 
-		void PullPoint::PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response)
-		{
-			is_client_waiting_ = true;
+                void PullPoint::PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response,
+                        int timeout, int msg_limit)
+                {
+                        is_client_waiting_ = true;
 
-			handler_ = handler;
-			response_writer_ = response;
+                        handler_ = handler;
+                        response_writer_ = response;
 
-			if (!events_.empty())
-			{
-				// Response to a subcriber immediately
-				response_to_pullmessages();
-			}
+                        pullmessages_timeout_ = std::chrono::seconds(timeout > 0 ? timeout : 0);
+                        pullmessages_message_limit_ = msg_limit > 0 ? static_cast<size_t>(msg_limit) : 0;
 
-			// Do charge the timeout timer
-			timeout_timer_.cancel();
-			timeout_timer_.expires_after(std::chrono::seconds(timeout_interval_));
-			timeout_timer_.async_wait([handler, this](const boost::system::error_code& error) {
-					if (error)
-						return;
+                        if (!events_.empty())
+                        {
+                                // Response to a subcriber immediately
+                                response_to_pullmessages();
+                        }
 
-					response_to_pullmessages();
-				});
-		}
+                        if (!is_client_waiting_)
+                                return;
+
+                        // Do charge the timeout timer
+                        pullmessages_timer_.cancel();
+                        pullmessages_timer_.expires_after(pullmessages_timeout_);
+                        pullmessages_timer_.async_wait([handler, this](const boost::system::error_code& error) {
+                                        if (error || !is_client_waiting_)
+                                                return;
+
+                                        response_to_pullmessages();
+                                });
+                }
 
 		void PullPoint::Notify(NotificationMessage&& event)
 		{
@@ -50,19 +57,24 @@ namespace osrv
 		
 		void PullPoint::response_to_pullmessages()
 		{
-			if (!is_client_waiting_)
-				return;
+                        if (!is_client_waiting_)
+                                return;
 
-			// Do serialize all stored events
+                        // Do serialize all stored events
 
-			// Do copy only less then specified in a PullMessages messages limit
-			// FIX: in current implementation all events is copied
-			std::deque<NotificationMessage> copied_events;
-			copied_events.swap(events_);
-			handler_(subscription_ref_, std::move(copied_events), response_writer_);
-			response_writer_.reset(); // it's required to reset writer ptr, otherwise response will not be written in time
-			is_client_waiting_ = false;
-		}
+                        // Do copy only less then specified in a PullMessages messages limit
+                        // FIX: in current implementation all events is copied
+                        std::deque<NotificationMessage> copied_events;
+                        auto events_to_copy = std::min(pullmessages_message_limit_, events_.size());
+                        for (size_t i = 0; i < events_to_copy; ++i)
+                        {
+                                copied_events.push_back(std::move(events_.front()));
+                                events_.pop_front();
+                        }
+                        handler_(subscription_ref_, std::move(copied_events), response_writer_);
+                        response_writer_.reset(); // it's required to reset writer ptr, otherwise response will not be written in time
+                        is_client_waiting_ = false;
+                }
 		
 		void PullPoint::SetSynchronizationPoint()
 		{
@@ -106,18 +118,18 @@ namespace osrv
 			return pp;
 		}
 		
-		void NotificationsManager::PullMessages(std::shared_ptr<HttpServer::Response> response,
-			const std::string& subscription_reference, const std::string& msg_id, int timeout, int msg_limit)
-		{
-			auto pp_it = find_pullpoint(pullpoints_, subscription_reference);
+                void NotificationsManager::PullMessages(std::shared_ptr<HttpServer::Response> response,
+                        const std::string& subscription_reference, const std::string& msg_id, int timeout, int msg_limit)
+                {
+                        auto pp_it = find_pullpoint(pullpoints_, subscription_reference);
 
-			if (pp_it != pullpoints_.end())
-			{
-				(*pp_it)->PullMessages([msg_id, this](const std::string& subscr_ref, std::deque<NotificationMessage> events,
-						std::shared_ptr<HttpServer::Response> response) {
-						do_pullmessages_response(subscr_ref, msg_id, std::move(events), response);
-					}, response);
-			}
+                        if (pp_it != pullpoints_.end())
+                        {
+                                (*pp_it)->PullMessages([msg_id, this](const std::string& subscr_ref, std::deque<NotificationMessage> events,
+                                                std::shared_ptr<HttpServer::Response> response) {
+                                                do_pullmessages_response(subscr_ref, msg_id, std::move(events), response);
+                                        }, response, timeout, msg_limit);
+                        }
 			else
 			{
 				// ? Need to check specification, more likely it's need to response with an error code
