@@ -10,9 +10,11 @@
 #include <algorithm>
 #include <vector>
 #include <optional>
+#include <stdexcept>
 
 #include <boost/property_tree/xml_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
+#include <boost/algorithm/string/trim.hpp>
 
 namespace osrv
 {
@@ -109,18 +111,58 @@ namespace osrv
 		
                 namespace
                 {
+                        constexpr const char* kConcreteTopicDialect = "http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet";
+
+                        std::vector<std::string> parse_topic_filters(const std::vector<TopicExpression>& topic_filters)
+                        {
+                                std::vector<std::string> parsed_filters;
+
+                                for (const auto& filter : topic_filters)
+                                {
+                                        std::string dialect = filter.dialect;
+                                        boost::algorithm::trim(dialect);
+
+                                        if (!dialect.empty() && dialect != kConcreteTopicDialect)
+                                        {
+                                                throw std::invalid_argument("Unsupported TopicExpression Dialect: " + dialect);
+                                        }
+
+                                        std::string expression = filter.expression;
+                                        boost::algorithm::trim(expression);
+
+                                        if (expression.empty())
+                                                continue;
+
+                                        std::istringstream expressions_stream(expression);
+                                        std::string token;
+                                        while (expressions_stream >> token)
+                                        {
+                                                parsed_filters.push_back(std::move(token));
+                                        }
+                                }
+
+                                return parsed_filters;
+                        }
+
                         bool topic_matches_filters(const std::string& topic, const std::vector<std::string>& filters)
                         {
                                 if (filters.empty())
                                         return true;
 
                                 return std::any_of(filters.begin(), filters.end(), [&topic](const std::string& filter) {
-                                        return topic == filter;
+                                        if (topic == filter)
+                                                return true;
+
+                                        const auto has_prefix = topic.size() > filter.size()
+                                                && topic.compare(0, filter.size(), filter) == 0
+                                                && topic[filter.size()] == '/';
+
+                                        return has_prefix;
                                 });
                         }
                 }
 
-                std::shared_ptr<PullPoint> NotificationsManager::CreatePullPoint(const std::vector<std::string>& topic_filters)
+                std::shared_ptr<PullPoint> NotificationsManager::CreatePullPoint(const std::vector<TopicExpression>& topic_filters)
                 {
                         // When register a new PullPoint
                         // depending on subcription filter in a request
@@ -146,17 +188,13 @@ namespace osrv
                                         if (it != pullpoints_.end())
                                                 pullpoints_.erase(it);
                                 });
+
+                        const auto parsed_filters = parse_topic_filters(topic_filters);
                         pullpoints_.push_back(pp);
                         for (auto& eg : event_generators_)
                         {
-                                if (!topic_matches_filters(eg->Topic(), topic_filters))
+                                if (!topic_matches_filters(eg->Topic(), parsed_filters))
                                         continue;
-
-                                // It's may increase waiting time for already connected clients
-                                // and now it properly works only for 1 subscriber
-                                // but it's help to notifiying that one exactly in specified time interval
-                                eg->Stop();
-                                eg->Run();
 
                                 auto signal_connection = eg->Connect([pp, this](NotificationMessage event_description) {
                                                 pp->Notify(std::move(event_description));
