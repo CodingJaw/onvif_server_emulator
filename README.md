@@ -46,7 +46,7 @@ Each ONVIF service is implemented as a separate instance. Each service may have 
 
 #### PullPoint
 
-"IgnoreClientsTimeout" - boolean value specifies whether ingore or not a timeout value from the PullMessages request. Currently this value is ignored and supposed always be true, i.e. it is hardcoded in the code. Actual timeout value equals to the value specified in "Timeout".
+"IgnoreClientsTimeout" - boolean value specifying whether a timeout value from the PullMessages request should be honored. When true, client-supplied timeouts are ignored and the server uses the configured "Timeout"; when false, valid client values override the configuration.
 
 "Timeout" - PullMessages timeout in seconds.
 

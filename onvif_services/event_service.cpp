@@ -274,7 +274,8 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
                 auto messages_limit = message_limit_validation.message_limit;
 
                 int request_timeout_seconds = EVENT_CONFIGS_TREE.get<int>("PullPoint.Timeout");
-                if (!timeout.empty())
+                const auto ignore_clients_timeout = EVENT_CONFIGS_TREE.get<bool>("PullPoint.IgnoreClientsTimeout");
+                if (!ignore_clients_timeout && !timeout.empty())
                 {
                         try
                         {
