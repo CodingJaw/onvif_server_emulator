@@ -17,30 +17,36 @@ namespace osrv
 
 	namespace event {
 
-                void PullPoint::PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response,
+        void PullPoint::PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response,
                         int timeout, int msg_limit)
+        {
+                is_client_waiting_ = true;
+
+                handler_ = handler;
+                response_writer_ = response;
+
+                pullmessages_timeout_ = std::chrono::seconds(timeout > 0 ? timeout : 0);
+                pullmessages_message_limit_ = msg_limit > 0 ? std::optional<size_t>(msg_limit) : std::nullopt;
+
+                if (!events_.empty())
                 {
-                        is_client_waiting_ = true;
+                        // Response to a subcriber immediately
+                        response_to_pullmessages();
+                }
 
-                        handler_ = handler;
-                        response_writer_ = response;
+                if (!is_client_waiting_)
+                        return;
 
-                        pullmessages_timeout_ = std::chrono::seconds(timeout > 0 ? timeout : 0);
-                        pullmessages_message_limit_ = msg_limit > 0 ? std::optional<size_t>(msg_limit) : std::nullopt;
+                if (pullmessages_timeout_.count() == 0)
+                {
+                        response_to_pullmessages();
+                        return;
+                }
 
-                        if (!events_.empty())
-                        {
-                                // Response to a subcriber immediately
-                                response_to_pullmessages();
-                        }
-
-                        if (!is_client_waiting_)
-                                return;
-
-                        // Do charge the timeout timer
-                        pullmessages_timer_.cancel();
-                        pullmessages_timer_.expires_after(pullmessages_timeout_);
-                        pullmessages_timer_.async_wait([handler, this](const boost::system::error_code& error) {
+                // Do charge the timeout timer
+                pullmessages_timer_.cancel();
+                pullmessages_timer_.expires_after(pullmessages_timeout_);
+                pullmessages_timer_.async_wait([handler, this](const boost::system::error_code& error) {
                                         if (error || !is_client_waiting_)
                                                 return;
 
@@ -55,10 +61,12 @@ namespace osrv
 			response_to_pullmessages();
 		}
 		
-		void PullPoint::response_to_pullmessages()
-		{
+                void PullPoint::response_to_pullmessages()
+                {
                         if (!is_client_waiting_)
                                 return;
+
+                        pullmessages_timer_.cancel();
 
                         // Do serialize all stored events
 
