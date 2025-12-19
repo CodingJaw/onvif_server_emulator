@@ -295,6 +295,11 @@ namespace osrv
                         void do_pullmessages_response(std::shared_ptr<PullPoint> /*pullpoint*/, const std::string& /*msg_id*/,
                                 std::deque<NotificationMessage>&& /*events*/, std::shared_ptr<HttpServer::Response> /*response*/);
 
+                        void handle_expired_pullpoint(const std::string& /*subscription_reference*/,
+                                const std::weak_ptr<PullPoint>& /*weak_pullpoint*/);
+
+                        void prune_expired_pullpoints(const boost::posix_time::ptime& /*now*/);
+
 		private:
 			const ILogger* logger_;
 

@@ -6,6 +6,7 @@
 
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
+#include <chrono>
 #include <map>
 #include <stdexcept>
 #include <vector>
@@ -328,4 +329,66 @@ BOOST_AUTO_TEST_CASE(allows_concurrent_subscriptions_to_receive_events)
         BOOST_TEST(received_two.size() == 1u);
         BOOST_TEST(received_one.front().topic == generator->Topic());
         BOOST_TEST(received_two.front().topic == generator->Topic());
+}
+
+BOOST_AUTO_TEST_CASE(expired_subscriptions_do_not_affect_active_ones)
+{
+        using namespace osrv::event;
+        DummyLogger logger;
+        std::map<std::string, std::string> namespaces;
+        NotificationsManager manager(logger, namespaces, 1, 0, 60);
+
+        auto& io = manager.GetIoContext();
+        auto generator = std::make_shared<TestEventGenerator>("tns1:RuleEngine/CellMotionDetector/Motion", io, logger);
+        manager.AddGenerator(generator);
+
+        auto expiring = manager.CreatePullPoint({});
+        (void)expiring;
+        auto extended = manager.CreatePullPoint({});
+
+        const auto now = boost::posix_time::microsec_clock::universal_time();
+        extended->SetSubscriptionTimes(now, now, now + boost::posix_time::seconds(5));
+        extended->RefreshTerminationTimer(std::chrono::seconds(5), [&manager](const std::string& ref) {
+                manager.Unsubscribe(ref);
+        });
+
+        io.run_for(std::chrono::seconds(2));
+
+        BOOST_TEST(generator->ConnectionCount() == 1u);
+
+        io.restart();
+        io.run_for(std::chrono::seconds(4));
+
+        BOOST_TEST(generator->ConnectionCount() == 0u);
+}
+
+BOOST_AUTO_TEST_CASE(renewed_subscription_outlives_peers)
+{
+        using namespace osrv::event;
+        DummyLogger logger;
+        std::map<std::string, std::string> namespaces;
+        NotificationsManager manager(logger, namespaces, 1, 0, 60);
+
+        auto& io = manager.GetIoContext();
+        auto generator = std::make_shared<TestEventGenerator>("tns1:RuleEngine/CellMotionDetector/Motion", io, logger);
+        manager.AddGenerator(generator);
+
+        auto renewed = manager.CreatePullPoint({});
+        auto short_lived = manager.CreatePullPoint({});
+        (void)short_lived;
+
+        const auto renew_time = boost::posix_time::microsec_clock::universal_time();
+        BOOST_TEST(renewed->TryRenew(renew_time, boost::posix_time::seconds(3), boost::posix_time::seconds(0)));
+        renewed->RefreshTerminationTimer(std::chrono::seconds(3), [&manager](const std::string& ref) {
+                manager.Unsubscribe(ref);
+        });
+
+        io.run_for(std::chrono::seconds(2));
+
+        BOOST_TEST(generator->ConnectionCount() == 1u);
+
+        io.restart();
+        io.run_for(std::chrono::seconds(2));
+
+        BOOST_TEST(generator->ConnectionCount() == 0u);
 }

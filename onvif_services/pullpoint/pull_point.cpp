@@ -180,13 +180,7 @@ namespace osrv
                         pp->SetSubscriptionTimes(now, now, termination_time);
                         pp->RefreshTerminationTimer(std::chrono::seconds(subscription_lease_seconds_),
                                 [this, weak_pp = std::weak_ptr<PullPoint>(pp)](const std::string& ref) {
-                                        auto shared_pp = weak_pp.lock();
-                                        if (shared_pp)
-                                                shared_pp->DisconnectFromGenerators();
-
-                                        auto it = find_pullpoint(pullpoints_, ref);
-                                        if (it != pullpoints_.end())
-                                                pullpoints_.erase(it);
+                                        handle_expired_pullpoint(ref, weak_pp);
                                 });
 
                         const auto parsed_filters = parse_topic_filters(topic_filters);
@@ -208,11 +202,14 @@ namespace osrv
                 void NotificationsManager::PullMessages(std::shared_ptr<HttpServer::Response> response,
                         const std::string& subscription_reference, const std::string& msg_id, int timeout, int msg_limit)
                 {
+                        auto now = boost::posix_time::microsec_clock::universal_time();
+                        prune_expired_pullpoints(now);
+
                         auto pp_it = find_pullpoint(pullpoints_, subscription_reference);
 
                         if (pp_it != pullpoints_.end())
                         {
-                                auto now = boost::posix_time::microsec_clock::universal_time();
+                                now = boost::posix_time::microsec_clock::universal_time();
                                 if ((*pp_it)->IsExpired(now))
                                 {
                                         (*pp_it)->DisconnectFromGenerators();
@@ -301,6 +298,9 @@ namespace osrv
 
                         logger_->Debug("Sending RenewRequest: " + header_to);
 
+                        auto now = boost::posix_time::microsec_clock::universal_time();
+                        prune_expired_pullpoints(now);
+
                         auto pp_it = find_pullpoint(pullpoints_, header_to);
                         if (pp_it == pullpoints_.end())
                         {
@@ -322,8 +322,6 @@ namespace osrv
                                 utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
                                 return;
                         }
-
-                        auto now = boost::posix_time::microsec_clock::universal_time();
 
                         if ((*pp_it)->IsExpired(now))
                         {
@@ -359,13 +357,7 @@ namespace osrv
                         {
                                 (*pp_it)->RefreshTerminationTimer(std::chrono::seconds(granted_seconds),
                                 [this, weak_pp = std::weak_ptr<PullPoint>(*pp_it)](const std::string& ref) {
-                                        auto shared_pp = weak_pp.lock();
-                                        if (shared_pp)
-                                                shared_pp->DisconnectFromGenerators();
-
-                                        auto it = find_pullpoint(pullpoints_, ref);
-                                        if (it != pullpoints_.end())
-                                                pullpoints_.erase(it);
+                                        handle_expired_pullpoint(ref, weak_pp);
                                 });
                         }
                         else
@@ -393,8 +385,34 @@ namespace osrv
 			std::ostringstream os;
 			pt::write_xml(os, root_tree);
 
-			utility::http::fillResponseWithHeaders(*response, os.str());
-		}
+                        utility::http::fillResponseWithHeaders(*response, os.str());
+                }
+
+                void NotificationsManager::handle_expired_pullpoint(const std::string& ref,
+                        const std::weak_ptr<PullPoint>& weak_pullpoint)
+                {
+                        auto shared_pp = weak_pullpoint.lock();
+                        if (shared_pp)
+                                shared_pp->DisconnectFromGenerators();
+
+                        auto it = find_pullpoint(pullpoints_, ref);
+                        if (it != pullpoints_.end())
+                                pullpoints_.erase(it);
+                }
+
+                void NotificationsManager::prune_expired_pullpoints(const boost::posix_time::ptime& now)
+                {
+                        pullpoints_.erase(std::remove_if(pullpoints_.begin(), pullpoints_.end(),
+                                [this, &now](const std::shared_ptr<PullPoint>& pullpoint) {
+                                        if (!pullpoint->IsExpired(now))
+                                                return false;
+
+                                        pullpoint->CancelTerminationTimer();
+                                        pullpoint->DisconnectFromGenerators();
+                                        return true;
+                                }),
+                                pullpoints_.end());
+                }
 		
 		void NotificationsManager::Run()
 		{
