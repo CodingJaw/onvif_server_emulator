@@ -478,15 +478,18 @@ namespace osrv
 			utility::http::fillResponseWithHeaders(*response, os.str());
 		}
 
-		bool compare_subscription_references(const std::string& full_ref, const std::string& short_ref)
-		{
-			// checks if full_ref ends with short_ref, i.e. address prefix with port should be ignored
-			// http://127.0.0.1:8080/onvif/event_service/s0
-			// onvif/event_service/s0
+                bool compare_subscription_references(const std::string& full_ref, const std::string& short_ref)
+                {
+                        if (full_ref.size() < short_ref.size())
+                                return false;
 
-			return std::find_end(full_ref.begin(), full_ref.end(),
-				short_ref.begin(), short_ref.end()) != full_ref.end();
-		}
+                        const auto suffix_pos = full_ref.size() - short_ref.size();
+                        const auto is_suffix = full_ref.compare(suffix_pos, short_ref.size(), short_ref) == 0;
+                        if (!is_suffix)
+                                return false;
+
+                        return suffix_pos == 0 || full_ref[suffix_pos - 1] == '/';
+                }
 
                 boost::property_tree::ptree serialize_notification_messages(std::deque<NotificationMessage>& msgs,
                         const PullPoint& pullpoint)

@@ -9,6 +9,7 @@
 #include <boost/property_tree/xml_parser.hpp>
 #include <chrono>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -157,8 +158,34 @@ BOOST_AUTO_TEST_CASE(compare_subscription_references_func)
 	const std::string test_subscription_ref = "onvif/event_service/s0";
 	const std::string test_subscription_ref2 = "onvif/event_service/s1";
 
-	BOOST_TEST(true == compare_subscription_references(full_ref, test_subscription_ref));
-	BOOST_TEST(false == compare_subscription_references(full_ref, test_subscription_ref2));
+        BOOST_TEST(true == compare_subscription_references(full_ref, test_subscription_ref));
+        BOOST_TEST(false == compare_subscription_references(full_ref, test_subscription_ref2));
+}
+
+BOOST_AUTO_TEST_CASE(find_pullpoint_requires_delimited_suffix_match)
+{
+        using namespace osrv::event;
+
+        boost::asio::io_context io;
+        DummyLogger logger;
+        PullPoints_t pullpoints;
+
+        auto subscription_one = std::make_shared<PullPoint>("onvif/event_service/s1", io, logger);
+        auto subscription_two = std::make_shared<PullPoint>("onvif/event_service/s10", io, logger);
+
+        pullpoints.push_back(subscription_one);
+        pullpoints.push_back(subscription_two);
+
+        auto found_one = find_pullpoint(pullpoints, "http://127.0.0.1:8080/onvif/event_service/s1");
+        BOOST_TEST(found_one != pullpoints.end());
+        BOOST_TEST(*found_one == subscription_one);
+
+        auto found_two = find_pullpoint(pullpoints, "http://127.0.0.1:8080/onvif/event_service/s10");
+        BOOST_TEST(found_two != pullpoints.end());
+        BOOST_TEST(*found_two == subscription_two);
+
+        auto missing = find_pullpoint(pullpoints, "http://127.0.0.1:8080/onvif/event_service/s1_extra");
+        BOOST_TEST(missing == pullpoints.end());
 }
 
 BOOST_AUTO_TEST_CASE(validates_message_limit_with_defaults)
