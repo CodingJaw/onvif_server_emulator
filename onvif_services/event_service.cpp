@@ -344,27 +344,49 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
                         utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
                 }
         }
-	else if (header_action == ACTION_UNSUBSCRIBE)
-	{
-		notifications_manager->Unsubscribe(header_to);
+        else if (header_action == ACTION_UNSUBSCRIBE)
+        {
+                try
+                {
+                        notifications_manager->Unsubscribe(header_to);
 
-		namespace pt = boost::property_tree;
-		auto envelope_tree = utility::soap::getEnvelopeTree(XML_NAMESPACES);
-		envelope_tree.add("s:Header.wsa:MessageID", header_message_id);
-		envelope_tree.add("s:Header.wsa:To", "http://www.w3.org/2005/08/addressing/anonymous");
-		envelope_tree.add("s:Header.wsa:Action",
-											"http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/UnsubscribeResponse");
+                        namespace pt = boost::property_tree;
+                        auto envelope_tree = utility::soap::getEnvelopeTree(XML_NAMESPACES);
+                        envelope_tree.add("s:Header.wsa:MessageID", header_message_id);
+                        envelope_tree.add("s:Header.wsa:To", "http://www.w3.org/2005/08/addressing/anonymous");
+                        envelope_tree.add("s:Header.wsa:Action",
+                                                                                                "http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/UnsubscribeResponse");
 
-		envelope_tree.add("s:Body.wsnt:UnsubscribeResponse", "");
+                        envelope_tree.add("s:Body.wsnt:UnsubscribeResponse", "");
 
-		pt::ptree root_tree;
-		root_tree.put_child("s:Envelope", envelope_tree);
+                        pt::ptree root_tree;
+                        root_tree.put_child("s:Envelope", envelope_tree);
 
-		std::ostringstream os;
-		pt::write_xml(os, root_tree);
+                        std::ostringstream os;
+                        pt::write_xml(os, root_tree);
 
-		utility::http::fillResponseWithHeaders(*response, os.str());
-	}
+                        utility::http::fillResponseWithHeaders(*response, os.str());
+                }
+                catch (const std::exception& e)
+                {
+                        auto envelope_tree = utility::soap::getEnvelopeTree(XML_NAMESPACES);
+
+                        boost::property_tree::ptree code_node;
+                        code_node.add("s:Value", "s:Sender");
+                        code_node.add("s:Subcode.s:Value", "wstop:ResourceUnknown");
+                        envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", e.what());
+                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+                        boost::property_tree::ptree root_tree;
+                        root_tree.put_child("s:Envelope", envelope_tree);
+
+                        std::ostringstream os;
+                        boost::property_tree::write_xml(os, root_tree);
+
+                        utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+                }
+        }
         else
         {
                 namespace pt = boost::property_tree;
