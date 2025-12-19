@@ -26,7 +26,7 @@ namespace osrv
                         response_writer_ = response;
 
                         pullmessages_timeout_ = std::chrono::seconds(timeout > 0 ? timeout : 0);
-                        pullmessages_message_limit_ = msg_limit > 0 ? static_cast<size_t>(msg_limit) : 0;
+                        pullmessages_message_limit_ = msg_limit > 0 ? std::optional<size_t>(msg_limit) : std::nullopt;
 
                         if (!events_.empty())
                         {
@@ -65,7 +65,10 @@ namespace osrv
                         // Do copy only less then specified in a PullMessages messages limit
                         // FIX: in current implementation all events is copied
                         std::deque<NotificationMessage> copied_events;
-                        auto events_to_copy = std::min(pullmessages_message_limit_, events_.size());
+                        auto events_to_copy = events_.size();
+                        if (pullmessages_message_limit_)
+                                events_to_copy = std::min(*pullmessages_message_limit_, events_to_copy);
+
                         for (size_t i = 0; i < events_to_copy; ++i)
                         {
                                 copied_events.push_back(std::move(events_.front()));

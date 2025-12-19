@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <memory>
+#include <optional>
 
 #include <boost/asio.hpp>
 #include <boost/signals2.hpp>
@@ -56,8 +57,7 @@ namespace osrv
                                 , subscription_ref_(subscription_reference)
                                 , max_messages_(50)
                                 , pullmessages_timeout_(std::chrono::seconds(timeout_interval_))
-                                , pullmessages_message_limit_(max_messages_)
-                                , is_client_waiting_(false)
+                        , is_client_waiting_(false)
                         {
                         }
 
@@ -136,7 +136,7 @@ namespace osrv
                         int max_messages_;
 
                         std::chrono::seconds pullmessages_timeout_;
-                        size_t pullmessages_message_limit_;
+                        std::optional<size_t> pullmessages_message_limit_;
 
 			std::deque<NotificationMessage> events_;
 

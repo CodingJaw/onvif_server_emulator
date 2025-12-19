@@ -177,9 +177,9 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
                 auto timeout_seconds = parsed_timeout.value_or(EVENT_CONFIGS_TREE.get<int>("PullPoint.Timeout"));
 
                 auto parsed_messages_limit = parse_message_limit(messages_limit_raw);
-                auto messages_limit = parsed_messages_limit.value_or(0);
-                if (messages_limit < 0)
-                        messages_limit = 0;
+                auto messages_limit = parsed_messages_limit.value_or(-1);
+                if (messages_limit <= 0)
+                        messages_limit = -1;
 
                 notifications_manager->PullMessages(response, header_to, header_message_id,
                         timeout_seconds, messages_limit);
