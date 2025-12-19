@@ -442,8 +442,9 @@ void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_ins
 	for (const auto& n : namespaces_tree)
 		XML_NAMESPACES.insert({n.first, n.second.get_value<std::string>()});
 
-	notifications_manager =
-			std::unique_ptr<osrv::event::NotificationsManager>(new osrv::event::NotificationsManager(logger, XML_NAMESPACES));
+        notifications_manager =
+                        std::unique_ptr<osrv::event::NotificationsManager>(new osrv::event::NotificationsManager(logger, XML_NAMESPACES,
+                                        EVENT_CONFIGS_TREE.get<int>("PullPoint.Timeout")));
 
 	// TODO: reading events generating interval from configs
 	// add event generators

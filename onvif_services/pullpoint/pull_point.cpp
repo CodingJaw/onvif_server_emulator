@@ -17,12 +17,12 @@ namespace osrv
 
 	namespace event {
 
-		void PullPoint::PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response)
-		{
-			is_client_waiting_ = true;
+                void PullPoint::PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response)
+                {
+                        is_client_waiting_ = true;
 
-			handler_ = handler;
-			response_writer_ = response;
+                        handler_ = handler;
+                        response_writer_ = response;
 
 			if (!events_.empty())
 			{
@@ -30,16 +30,16 @@ namespace osrv
 				response_to_pullmessages();
 			}
 
-			// Do charge the timeout timer
-			timeout_timer_.cancel();
-			timeout_timer_.expires_after(std::chrono::seconds(timeout_interval_));
-			timeout_timer_.async_wait([handler, this](const boost::system::error_code& error) {
-					if (error)
-						return;
+                        // Do charge the timeout timer
+                        pullmessages_timer_.cancel();
+                        pullmessages_timer_.expires_after(std::chrono::seconds(timeout_interval_));
+                        pullmessages_timer_.async_wait([self = shared_from_this()](const boost::system::error_code& error) {
+                                        if (error)
+                                                return;
 
-					response_to_pullmessages();
-				});
-		}
+                                        self->response_to_pullmessages();
+                                });
+                }
 
 		void PullPoint::Notify(NotificationMessage&& event)
 		{
@@ -55,44 +55,75 @@ namespace osrv
 
 			// Do serialize all stored events
 
-			// Do copy only less then specified in a PullMessages messages limit
-			// FIX: in current implementation all events is copied
-			std::deque<NotificationMessage> copied_events;
-			copied_events.swap(events_);
-			handler_(subscription_ref_, std::move(copied_events), response_writer_);
-			response_writer_.reset(); // it's required to reset writer ptr, otherwise response will not be written in time
-			is_client_waiting_ = false;
-		}
+                        // Do copy only less then specified in a PullMessages messages limit
+                        // FIX: in current implementation all events is copied
+                        std::deque<NotificationMessage> copied_events;
+                        copied_events.swap(events_);
+                        handler_(shared_from_this(), std::move(copied_events), response_writer_);
+                        response_writer_.reset(); // it's required to reset writer ptr, otherwise response will not be written in time
+                        is_client_waiting_ = false;
+                }
 		
-		void PullPoint::SetSynchronizationPoint()
-		{
+                void PullPoint::SetSynchronizationPoint()
+                {
 
-			// I think we should clean already saved NotificationMessages
-			events_.clear();
+                        // I think we should clean already saved NotificationMessages
+                        events_.clear();
 
 			for (const auto eg : connected_generators_)
 			{
 				auto gen_ev = eg->GenerateSynchronizationEvent();
-				events_.insert(events_.end(), gen_ev.begin(), gen_ev.end());
-			}
-		}
-		
-		std::shared_ptr<PullPoint> NotificationsManager::CreatePullPoint()
-		{
-			// When register a new PullPoint
-			// depending on subcription filter in a request
-			// need to connect a PullPoint instance only with appropriate event generators
-			// FIX: the current implementation connects PullPoint instances with all generators
+                                events_.insert(events_.end(), gen_ev.begin(), gen_ev.end());
+                        }
+                }
 
-			// FIX: current implementation handles only 1 subscriber, if some pullpoint did not be renewed,
-			// it should be deleted by timeout
-			auto test_subscription_reference = "onvif/event_service/s0";
-			auto pp = std::shared_ptr<PullPoint>(new PullPoint(test_subscription_reference, io_context_, *logger_));
-			pullpoints_.push_back(pp);
-			for (auto& eg : event_generators_)
-			{
-				// It's may increase waiting time for already connected clients
-				// and now it properly works only for 1 subscriber
+                void PullPoint::RefreshTerminationTimer(std::chrono::steady_clock::duration duration,
+                        std::function<void(const std::string&)> on_expired)
+                {
+                        expiration_handler_ = std::move(on_expired);
+
+                        termination_timer_.cancel();
+                        termination_timer_.expires_after(duration);
+
+                        auto self = shared_from_this();
+                        termination_timer_.async_wait([self](const boost::system::error_code& error) {
+                                        if (error)
+                                                return;
+
+                                        if (self->expiration_handler_)
+                                                self->expiration_handler_(self->GetSubscriptionReference());
+                                });
+                }
+		
+                std::shared_ptr<PullPoint> NotificationsManager::CreatePullPoint()
+                {
+                        // When register a new PullPoint
+                        // depending on subcription filter in a request
+                        // need to connect a PullPoint instance only with appropriate event generators
+                        // FIX: the current implementation connects PullPoint instances with all generators
+
+                        // FIX: current implementation handles only 1 subscriber, if some pullpoint did not be renewed,
+                        // it should be deleted by timeout
+                        auto test_subscription_reference = "onvif/event_service/s" + std::to_string(subscription_counter_++);
+                        auto pp = std::shared_ptr<PullPoint>(new PullPoint(test_subscription_reference, io_context_, *logger_));
+                        auto now = boost::posix_time::microsec_clock::universal_time();
+                        auto termination_time = now + boost::posix_time::seconds(subscription_ttl_seconds_);
+                        pp->SetSubscriptionTimes(now, now, termination_time);
+                        pp->RefreshTerminationTimer(std::chrono::seconds(subscription_ttl_seconds_),
+                                [this, weak_pp = std::weak_ptr<PullPoint>(pp)](const std::string& ref) {
+                                        auto shared_pp = weak_pp.lock();
+                                        if (shared_pp)
+                                                shared_pp->DisconnectFromGenerators();
+
+                                        auto it = find_pullpoint(pullpoints_, ref);
+                                        if (it != pullpoints_.end())
+                                                pullpoints_.erase(it);
+                                });
+                        pullpoints_.push_back(pp);
+                        for (auto& eg : event_generators_)
+                        {
+                                // It's may increase waiting time for already connected clients
+                                // and now it properly works only for 1 subscriber
 				// but it's help to notifiying that one exactly in specified time interval
 				eg->Stop();
 				eg->Run();
@@ -106,18 +137,18 @@ namespace osrv
 			return pp;
 		}
 		
-		void NotificationsManager::PullMessages(std::shared_ptr<HttpServer::Response> response,
-			const std::string& subscription_reference, const std::string& msg_id, int timeout, int msg_limit)
-		{
-			auto pp_it = find_pullpoint(pullpoints_, subscription_reference);
+                void NotificationsManager::PullMessages(std::shared_ptr<HttpServer::Response> response,
+                        const std::string& subscription_reference, const std::string& msg_id, int timeout, int msg_limit)
+                {
+                        auto pp_it = find_pullpoint(pullpoints_, subscription_reference);
 
-			if (pp_it != pullpoints_.end())
-			{
-				(*pp_it)->PullMessages([msg_id, this](const std::string& subscr_ref, std::deque<NotificationMessage> events,
-						std::shared_ptr<HttpServer::Response> response) {
-						do_pullmessages_response(subscr_ref, msg_id, std::move(events), response);
-					}, response);
-			}
+                        if (pp_it != pullpoints_.end())
+                        {
+                                (*pp_it)->PullMessages([msg_id, this](std::shared_ptr<PullPoint> pullpoint, std::deque<NotificationMessage> events,
+                                                std::shared_ptr<HttpServer::Response> response) {
+                                                do_pullmessages_response(pullpoint, msg_id, std::move(events), response);
+                                        }, response);
+                        }
 			else
 			{
 				// ? Need to check specification, more likely it's need to response with an error code
@@ -140,40 +171,75 @@ namespace osrv
 
 		void NotificationsManager::Unsubscribe(const std::string& subscription_reference)
 		{
-			auto pp_it = find_pullpoint(pullpoints_, subscription_reference);
-			if (pp_it != pullpoints_.end())
-			{
-				(*pp_it)->DisconnectFromGenerators();
-				pullpoints_.erase(pp_it);
-			}
+                        auto pp_it = find_pullpoint(pullpoints_, subscription_reference);
+                        if (pp_it != pullpoints_.end())
+                        {
+                                (*pp_it)->CancelTerminationTimer();
+                                (*pp_it)->DisconnectFromGenerators();
+                                pullpoints_.erase(pp_it);
+                        }
 			else
 			{
 				// TODO: Probably it should be throwed an exception
 			}
 		}
 
-		void NotificationsManager::Renew(std::shared_ptr<HttpServer::Response> response, const std::string& header_to, const std::string& header_msg_id)
-		{
-			if (!xml_namespaces_)
-				throw std::runtime_error("XML namespaces not initialized in NotificationManager!");
-			
-			logger_->Debug("Sending RenewRequest: " + header_to);
+                void NotificationsManager::Renew(std::shared_ptr<HttpServer::Response> response, const std::string& header_to, const std::string& header_msg_id)
+                {
+                        if (!xml_namespaces_)
+                                throw std::runtime_error("XML namespaces not initialized in NotificationManager!");
 
-			namespace pt = boost::property_tree;
+                        logger_->Debug("Sending RenewRequest: " + header_to);
 
-			pt::ptree analytics_configs;
-			auto envelope_tree = utility::soap::getEnvelopeTree(*xml_namespaces_);
+                        auto pp_it = find_pullpoint(pullpoints_, header_to);
+                        if (pp_it == pullpoints_.end())
+                        {
+                                auto envelope_tree = utility::soap::getEnvelopeTree(*xml_namespaces_);
+
+                                boost::property_tree::ptree code_node;
+                                code_node.add("s:Value", "s:Sender");
+                                code_node.add("s:Subcode.s:Value", "ter:InvalidArgVal");
+                                envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+                                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", "Unknown SubscriptionReference");
+                                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+                                boost::property_tree::ptree root_tree;
+                                root_tree.put_child("s:Envelope", envelope_tree);
+
+                                std::ostringstream os;
+                                boost::property_tree::write_xml(os, root_tree);
+
+                                utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+                                return;
+                        }
+
+                        auto now = boost::posix_time::microsec_clock::universal_time();
+                        auto termination_time = now + boost::posix_time::seconds(subscription_ttl_seconds_);
+                        (*pp_it)->UpdateRenewal(now, termination_time);
+                        (*pp_it)->RefreshTerminationTimer(std::chrono::seconds(subscription_ttl_seconds_),
+                                [this, weak_pp = std::weak_ptr<PullPoint>(*pp_it)](const std::string& ref) {
+                                        auto shared_pp = weak_pp.lock();
+                                        if (shared_pp)
+                                                shared_pp->DisconnectFromGenerators();
+
+                                        auto it = find_pullpoint(pullpoints_, ref);
+                                        if (it != pullpoints_.end())
+                                                pullpoints_.erase(it);
+                                });
+
+                        namespace pt = boost::property_tree;
+
+                        pt::ptree analytics_configs;
+                        auto envelope_tree = utility::soap::getEnvelopeTree(*xml_namespaces_);
 
 			envelope_tree.add("s:Header.wsa:MessageID", header_msg_id);
 			envelope_tree.add("s:Header.wsa:To", "http://www.w3.org/2005/08/addressing/anonymous");
 			envelope_tree.add("s:Header.wsa:Action", "http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/RenewResponse");
 
-			pt::ptree response_node;
-			response_node.add("wsnt:TerminationTime",
-				utility::datetime::posix_datetime_to_utc(boost::posix_time::microsec_clock::universal_time()
-					+ boost::posix_time::seconds(60)));
-			response_node.add("wsnt:CurrentTime", utility::datetime::system_utc_datetime());
-			envelope_tree.add_child("s:Body.wsnt:RenewResponse", response_node);
+                        pt::ptree response_node;
+                        response_node.add("wsnt:TerminationTime", (*pp_it)->GetTerminationTime());
+                        response_node.add("wsnt:CurrentTime", (*pp_it)->GetLastRenew());
+                        envelope_tree.add_child("s:Body.wsnt:RenewResponse", response_node);
 
 			pt::ptree root_tree;
 			root_tree.put_child("s:Envelope", envelope_tree);
@@ -202,10 +268,10 @@ namespace osrv
 			logger_->Debug("NotificationsManager is run successfully");
 		}
 
-		void NotificationsManager::do_pullmessages_response(const std::string& subscr_ref, const std::string& msg_id,
-			std::deque<NotificationMessage>&& events, std::shared_ptr<HttpServer::Response> response)
-		{
-			logger_->Debug("Sending PullPoint response with msg id: " + subscr_ref);
+                void NotificationsManager::do_pullmessages_response(std::shared_ptr<PullPoint> pullpoint, const std::string& msg_id,
+                        std::deque<NotificationMessage>&& events, std::shared_ptr<HttpServer::Response> response)
+                {
+                        logger_->Debug("Sending PullPoint response with msg id: " + pullpoint->GetSubscriptionReference());
 
 			/**
 				PullMessagesResponse response format:
@@ -226,7 +292,7 @@ namespace osrv
 			envelope_tree.add("s:Header.wsa:To", "http://www.w3.org/2005/08/addressing/anonymous");
 			envelope_tree.add("s:Header.wsa:Action", "http://www.onvif.org/ver10/events/wsdl/PullPointSubscription/PullMessagesResponse");
 
-			pt::ptree response_node = serialize_notification_messages(events, subscr_ref);
+                        pt::ptree response_node = serialize_notification_messages(events, *pullpoint);
 
 			envelope_tree.add_child("s:Body.tet:PullMessagesResponse", response_node);
 
@@ -249,21 +315,16 @@ namespace osrv
 				short_ref.begin(), short_ref.end()) != full_ref.end();
 		}
 
-		boost::property_tree::ptree serialize_notification_messages(std::deque<NotificationMessage>& msgs,
-			const std::string& subscription_ref)
-		{
-			namespace pt = boost::property_tree;
-			pt::ptree result;
+                boost::property_tree::ptree serialize_notification_messages(std::deque<NotificationMessage>& msgs,
+                        const PullPoint& pullpoint)
+                {
+                        namespace pt = boost::property_tree;
+                        pt::ptree result;
 
-			namespace ptime = boost::posix_time;
-			result.add("tet:CurrentTime", utility::datetime::system_utc_datetime());
+                        namespace ptime = boost::posix_time;
+                        result.add("tet:CurrentTime", utility::datetime::system_utc_datetime());
 
-			auto ttime = ptime::microsec_clock::universal_time();
-			ttime += ptime::seconds(60);
-
-			auto t = utility::datetime::posix_datetime_to_utc(ttime);
-			result.add("tet:TerminationTime",
-				t);
+                        result.add("tet:TerminationTime", pullpoint.GetTerminationTime());
 
 			while(!msgs.empty())
 			{
