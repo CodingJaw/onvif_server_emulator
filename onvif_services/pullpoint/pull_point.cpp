@@ -289,20 +289,18 @@ namespace osrv
 			(*pp_it)->SetSynchronizationPoint();
 		}
 
-		void NotificationsManager::Unsubscribe(const std::string& subscription_reference)
-		{
+                void NotificationsManager::Unsubscribe(const std::string& subscription_reference)
+                {
                         auto pp_it = find_pullpoint(pullpoints_, subscription_reference);
-                        if (pp_it != pullpoints_.end())
+                        if (pp_it == pullpoints_.end())
                         {
-                                (*pp_it)->CancelTerminationTimer();
-                                (*pp_it)->DisconnectFromGenerators();
-                                pullpoints_.erase(pp_it);
+                                throw std::runtime_error("Unknown SubscriptionReference");
                         }
-			else
-			{
-				// TODO: Probably it should be throwed an exception
-			}
-		}
+
+                        (*pp_it)->CancelTerminationTimer();
+                        (*pp_it)->DisconnectFromGenerators();
+                        pullpoints_.erase(pp_it);
+                }
 
                 void NotificationsManager::Renew(std::shared_ptr<HttpServer::Response> response, const std::string& header_to, const std::string& header_msg_id,
                         std::optional<int> requested_lease_seconds)
