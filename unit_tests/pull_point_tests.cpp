@@ -163,13 +163,23 @@ BOOST_AUTO_TEST_CASE(serialize_notification_messages_func1)
         boost::asio::io_context io;
         DummyLogger logger;
         auto pullpoint = std::make_shared<PullPoint>("onvif/event_service/s0", io, logger);
+        const std::string subscription_address = "http://127.0.0.1:8080/onvif/event_service/s0";
+        const std::string producer_endpoint = "http://127.0.0.1:8080/onvif/event_service";
+        pullpoint->SetSubscriptionAddress(subscription_address);
+        pullpoint->SetServiceEndpoint(producer_endpoint);
         auto now = boost::posix_time::microsec_clock::universal_time();
         pullpoint->SetSubscriptionTimes(now, now, now + boost::posix_time::seconds(60));
         boost::property_tree::ptree res = serialize_notification_messages(msgs, *pullpoint);
 
-	auto name =
-			res.get<std::string>("wsnt:NotificationMessage.wsnt:Message.tt:Message.tt:Source.tt:SimpleItem.<xmlattr>.Name");
-	BOOST_TEST(name == "ItemName");
+        auto sub_ref = res.get<std::string>("wsnt:NotificationMessage.wsnt:SubscriptionReference.wsa:Address");
+        BOOST_TEST(sub_ref == subscription_address);
+
+        auto producer_ref = res.get<std::string>("wsnt:NotificationMessage.wsnt:ProducerReference.wsa:Address");
+        BOOST_TEST(producer_ref == producer_endpoint);
+
+        auto name =
+                        res.get<std::string>("wsnt:NotificationMessage.wsnt:Message.tt:Message.tt:Source.tt:SimpleItem.<xmlattr>.Name");
+        BOOST_TEST(name == "ItemName");
 
         auto value =
                         res.get<std::string>("wsnt:NotificationMessage.wsnt:Message.tt:Message.tt:Source.tt:SimpleItem.<xmlattr>.Value");

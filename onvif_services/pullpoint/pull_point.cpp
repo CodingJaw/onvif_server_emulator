@@ -434,38 +434,43 @@ namespace osrv
 
                         result.add("tet:TerminationTime", pullpoint.GetTerminationTime());
 
-			while(!msgs.empty())
-			{
-				auto msg = msgs.front();
-				msgs.pop_front();
+                        const auto& subscription_reference = pullpoint.GetSubscriptionAddress();
+                        const auto& producer_reference = pullpoint.GetServiceEndpoint();
 
-				pt::ptree msg_node;
-				// TODO: delete all code related to these parameters, therefore they are not needed is this logic
-				//msg_node.add("wsnt:SubscriptionReference.wsa:Address", "http://192.168.43.120:8080/" + subscription_ref);	// <--- these  two are really
-				//msg_node.add("wsnt:ProducerReference.wsa:Address", "http://192.168.43.120:8080/onvif/event_service");		// <--- required??? - udp: NOO
+                        while(!msgs.empty())
+                        {
+                                auto msg = msgs.front();
+                                msgs.pop_front();
 
-				msg_node.add("wsnt:Topic", msg.topic);
-				msg_node.add("wsnt:Topic.<xmlattr>.Dialect", "http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet");
-				
-				msg_node.add("wsnt:Message.tt:Message.<xmlattr>.PropertyOperation", msg.property_operation);
-				msg_node.add("wsnt:Message.tt:Message.<xmlattr>.UtcTime", msg.utc_time);
+                                pt::ptree msg_node;
+                                if (!subscription_reference.empty())
+                                        msg_node.add("wsnt:SubscriptionReference.wsa:Address", subscription_reference);
 
-				for (const auto& [name, value] : msg.source_item_descriptions)
-				{
-					pt::ptree item_descr;
-					item_descr.add("<xmlattr>.Name", name);
-					item_descr.add("<xmlattr>.Value", value);
-					msg_node.add_child("wsnt:Message.tt:Message.tt:Source.tt:SimpleItem", item_descr);
-				}
-				
-				msg_node.add("wsnt:Message.tt:Message.tt:Data.tt:SimpleItem.<xmlattr>.Value", msg.data_value);
-				msg_node.add("wsnt:Message.tt:Message.tt:Data.tt:SimpleItem.<xmlattr>.Name", msg.data_name);
-								
-				result.add_child("wsnt:NotificationMessage", msg_node);
-			}
+                                if (!producer_reference.empty())
+                                        msg_node.add("wsnt:ProducerReference.wsa:Address", producer_reference);
 
-			return result;
-		}
+                                msg_node.add("wsnt:Topic", msg.topic);
+                                msg_node.add("wsnt:Topic.<xmlattr>.Dialect", "http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet");
+
+                                msg_node.add("wsnt:Message.tt:Message.<xmlattr>.PropertyOperation", msg.property_operation);
+                                msg_node.add("wsnt:Message.tt:Message.<xmlattr>.UtcTime", msg.utc_time);
+
+                                for (const auto& [name, value] : msg.source_item_descriptions)
+                                {
+                                        pt::ptree item_descr;
+                                        item_descr.add("<xmlattr>.Name", name);
+                                        item_descr.add("<xmlattr>.Value", value);
+                                        msg_node.add_child("wsnt:Message.tt:Message.tt:Source.tt:SimpleItem", item_descr);
+                                }
+
+                                msg_node.add("wsnt:Message.tt:Message.tt:Data.tt:SimpleItem.<xmlattr>.Value", msg.data_value);
+                                msg_node.add("wsnt:Message.tt:Message.tt:Data.tt:SimpleItem.<xmlattr>.Name", msg.data_name);
+
+                                result.add_child("wsnt:NotificationMessage", msg_node);
+                        }
+
+                        return result;
+                }
 
 		PullPoints_t::const_iterator find_pullpoint(const PullPoints_t& pullpoints, const std::string& subscription_reference)
 		{

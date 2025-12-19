@@ -11,6 +11,7 @@
 #include <chrono>
 #include <vector>
 #include <optional>
+#include <utility>
 
 #include <boost/asio.hpp>
 #include <boost/signals2.hpp>
@@ -89,12 +90,32 @@ namespace osrv
 				}
 			}
 
-			std::string GetSubscriptionReference() const
-			{
-				return subscription_ref_;
-			}
+                        std::string GetSubscriptionReference() const
+                        {
+                                return subscription_ref_;
+                        }
 
-			// This method is called when a subscriber want to pull events
+                        void SetSubscriptionAddress(std::string address)
+                        {
+                                subscription_address_ = std::move(address);
+                        }
+
+                        const std::string& GetSubscriptionAddress() const
+                        {
+                                return subscription_address_;
+                        }
+
+                        void SetServiceEndpoint(std::string endpoint)
+                        {
+                                service_endpoint_ = std::move(endpoint);
+                        }
+
+                        const std::string& GetServiceEndpoint() const
+                        {
+                                return service_endpoint_;
+                        }
+
+                        // This method is called when a subscriber want to pull events
                         void PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response,
                                 int timeout_seconds, int message_limit);
 
@@ -207,6 +228,9 @@ namespace osrv
                         // supposed to used only to get SynchronizationPoint
                         std::vector<const IEventGenerator*> connected_generators_;
                         std::vector<boost::signals2::connection> signal_connections_;
+
+                        std::string subscription_address_;
+                        std::string service_endpoint_;
                 };
 		using PullPoints_t = std::vector<std::shared_ptr<PullPoint>>;
 
