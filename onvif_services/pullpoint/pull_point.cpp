@@ -17,22 +17,26 @@ namespace osrv
 
 	namespace event {
 
-                void PullPoint::PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response)
+                void PullPoint::PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response,
+                        int timeout_seconds, int message_limit)
                 {
                         is_client_waiting_ = true;
 
                         handler_ = handler;
                         response_writer_ = response;
 
-			if (!events_.empty())
-			{
-				// Response to a subcriber immediately
-				response_to_pullmessages();
-			}
+                        current_timeout_interval_seconds_ = timeout_seconds > 0 ? timeout_seconds : timeout_interval_;
+                        current_message_limit_ = message_limit > 0 ? std::min(message_limit, max_messages_) : max_messages_;
+
+                        if (!events_.empty())
+                        {
+                                // Response to a subcriber immediately
+                                response_to_pullmessages();
+                        }
 
                         // Do charge the timeout timer
                         pullmessages_timer_.cancel();
-                        pullmessages_timer_.expires_after(std::chrono::seconds(timeout_interval_));
+                        pullmessages_timer_.expires_after(std::chrono::seconds(current_timeout_interval_seconds_));
                         pullmessages_timer_.async_wait([self = shared_from_this()](const boost::system::error_code& error) {
                                         if (error)
                                                 return;
@@ -58,7 +62,13 @@ namespace osrv
                         // Do copy only less then specified in a PullMessages messages limit
                         // FIX: in current implementation all events is copied
                         std::deque<NotificationMessage> copied_events;
-                        copied_events.swap(events_);
+
+                        const auto messages_to_copy = std::min(events_.size(), static_cast<size_t>(current_message_limit_));
+                        for (size_t i = 0; i < messages_to_copy; ++i)
+                        {
+                                copied_events.push_back(std::move(events_.front()));
+                                events_.pop_front();
+                        }
                         handler_(shared_from_this(), std::move(copied_events), response_writer_);
                         response_writer_.reset(); // it's required to reset writer ptr, otherwise response will not be written in time
                         is_client_waiting_ = false;
@@ -142,9 +152,6 @@ namespace osrv
                 void NotificationsManager::PullMessages(std::shared_ptr<HttpServer::Response> response,
                         const std::string& subscription_reference, const std::string& msg_id, int timeout, int msg_limit)
                 {
-                        (void)timeout;
-                        (void)msg_limit;
-
                         auto pp_it = find_pullpoint(pullpoints_, subscription_reference);
 
                         if (pp_it != pullpoints_.end())
@@ -177,7 +184,7 @@ namespace osrv
                                 (*pp_it)->PullMessages([msg_id, this](std::shared_ptr<PullPoint> pullpoint, std::deque<NotificationMessage> events,
                                                 std::shared_ptr<HttpServer::Response> response) {
                                                 do_pullmessages_response(pullpoint, msg_id, std::move(events), response);
-                                        }, response);
+                                        }, response, timeout, msg_limit);
                         }
                         else
                         {
