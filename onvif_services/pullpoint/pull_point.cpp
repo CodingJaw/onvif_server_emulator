@@ -443,7 +443,8 @@ namespace osrv
                 void NotificationsManager::do_pullmessages_response(std::shared_ptr<PullPoint> pullpoint, const std::string& msg_id,
                         std::deque<NotificationMessage>&& events, std::shared_ptr<HttpServer::Response> response)
                 {
-                        logger_->Debug("Sending PullPoint response with msg id: " + pullpoint->GetSubscriptionReference());
+                        logger_->Debug("Sending PullPoint response with msg id: " + msg_id
+                                + ", subscription: " + pullpoint->GetSubscriptionReference());
 
 			/**
 				PullMessagesResponse response format:
