@@ -16,8 +16,10 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
 
 #include <map>
+#include <optional>
 #include <vector>
 
 using StringPairsList_t = std::vector<std::pair<std::string, std::string>>;
@@ -119,13 +121,48 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
 
 	log_->Debug("Handling PullPoint/" + header_action + ". Subscription: " + request->path);
 
-	const static std::string ACTION_PULLMESSAGES =
-			"http://www.onvif.org/ver10/events/wsdl/PullPointSubscription/PullMessagesRequest";
-	const static std::string ACTION_RENEWREQUEST = "http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/RenewRequest";
-	const static std::string ACTION_SETSYNCHRONIZATIONPOINT =
-			"http://www.onvif.org/ver10/events/wsdl/PullPointSubscription/SetSynchronizationPointRequest";
-	const static std::string ACTION_UNSUBSCRIBE =
-			"http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/UnsubscribeRequest";
+        const static std::string ACTION_PULLMESSAGES =
+                        "http://www.onvif.org/ver10/events/wsdl/PullPointSubscription/PullMessagesRequest";
+        const static std::string ACTION_RENEWREQUEST = "http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/RenewRequest";
+        const static std::string ACTION_SETSYNCHRONIZATIONPOINT =
+                        "http://www.onvif.org/ver10/events/wsdl/PullPointSubscription/SetSynchronizationPointRequest";
+        const static std::string ACTION_UNSUBSCRIBE =
+                        "http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/UnsubscribeRequest";
+
+        const auto parse_requested_lease_seconds = [](const pt::ptree& request_tree) -> std::optional<int> {
+                const auto termination_time = exns::find_hierarchy("Envelope.Body.Renew.TerminationTime", request_tree);
+                if (termination_time.empty())
+                        return std::nullopt;
+
+                try
+                {
+                        if (termination_time.rfind("PT", 0) == 0)
+                        {
+                                const auto seconds_pos = termination_time.find('S');
+                                if (seconds_pos == std::string::npos || seconds_pos <= 2)
+                                        return std::nullopt;
+
+                                const auto seconds_part = termination_time.substr(2, seconds_pos - 2);
+                                return std::stoi(seconds_part);
+                        }
+
+                        auto sanitized = termination_time;
+                        if (!sanitized.empty() && sanitized.back() == 'Z')
+                                sanitized.pop_back();
+
+                        const auto requested_time = boost::posix_time::from_iso_extended_string(sanitized);
+                        const auto now = boost::posix_time::microsec_clock::universal_time();
+                        const auto diff = requested_time - now;
+                        if (diff.is_negative())
+                                return std::nullopt;
+
+                        return static_cast<int>(diff.total_seconds());
+                }
+                catch (const std::exception&)
+                {
+                        return std::nullopt;
+                }
+        };
 
         if (header_action == ACTION_PULLMESSAGES)
         {
@@ -154,12 +191,11 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
 
                 // If there was no error, a response will be send asynchronously
         }
-	else if (header_action == ACTION_RENEWREQUEST)
-	{
-		// it's not need now
-		// auto termination_time = exns::find_hierarchy("Envelope.Body.PullMessages.TerminationTime", request_tree);
-		notifications_manager->Renew(response, header_to, header_message_id);
-	}
+        else if (header_action == ACTION_RENEWREQUEST)
+        {
+                const auto requested_lease_seconds = parse_requested_lease_seconds(request_tree);
+                notifications_manager->Renew(response, header_to, header_message_id, requested_lease_seconds);
+        }
 	else if (header_action == ACTION_SETSYNCHRONIZATIONPOINT)
 	{
 		try

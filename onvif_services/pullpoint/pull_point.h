@@ -10,6 +10,7 @@
 #include <memory>
 #include <chrono>
 #include <vector>
+#include <optional>
 
 #include <boost/asio.hpp>
 #include <boost/signals2.hpp>
@@ -241,9 +242,10 @@ namespace osrv
 			// Delete PullPoint and cancel all related timers
 			void Unsubscribe(const std::string& /*subscription_reference*/);
 
-			void Renew(std::shared_ptr<HttpServer::Response> /*response*/,
-				const std::string& /*header_to*/,
-				const std::string& /*header_msg_id*/);
+                        void Renew(std::shared_ptr<HttpServer::Response> /*response*/,
+                                const std::string& /*header_to*/,
+                                const std::string& /*header_msg_id*/,
+                                std::optional<int> requested_lease_seconds);
 
 			void Run();
 
