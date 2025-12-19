@@ -267,22 +267,7 @@ namespace osrv
                         {
                                 // ? Need to check specification, more likely it's need to response with an error code
                                 logger_->Error("Not found subscription reference: " + subscription_reference);
-                                auto envelope_tree = utility::soap::getEnvelopeTree(*xml_namespaces_);
-
-                                boost::property_tree::ptree code_node;
-                                code_node.add("s:Value", "s:Sender");
-                                code_node.add("s:Subcode.s:Value", "ter:InvalidArgVal");
-                                envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
-                                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", "Unknown SubscriptionReference");
-                                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
-
-                                boost::property_tree::ptree root_tree;
-                                root_tree.put_child("s:Envelope", envelope_tree);
-
-                                std::ostringstream os;
-                                boost::property_tree::write_xml(os, root_tree);
-
-                                utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+                                respond_with_resource_unknown_fault(response, "Unknown SubscriptionReference");
                                 return;
                         }
                 }
@@ -456,12 +441,18 @@ namespace osrv
 
                 void NotificationsManager::respond_with_expired_fault(std::shared_ptr<HttpServer::Response> response)
                 {
+                        respond_with_resource_unknown_fault(response, "Subscription expired");
+                }
+
+                void NotificationsManager::respond_with_resource_unknown_fault(std::shared_ptr<HttpServer::Response> response,
+                        const std::string& reason)
+                {
                         auto envelope_tree = utility::soap::getEnvelopeTree(*xml_namespaces_);
                         boost::property_tree::ptree code_node;
                         code_node.add("s:Value", "s:Sender");
                         code_node.add("s:Subcode.s:Value", "wstop:ResourceUnknown");
                         envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
-                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", "Subscription expired");
+                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", reason);
                         envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
 
                         boost::property_tree::ptree root_tree;

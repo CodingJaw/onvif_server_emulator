@@ -307,8 +307,10 @@ namespace osrv
                         void prune_expired_pullpoints(const boost::posix_time::ptime& /*now*/);
 
                         void respond_with_expired_fault(std::shared_ptr<HttpServer::Response> /*response*/);
+                        void respond_with_resource_unknown_fault(std::shared_ptr<HttpServer::Response> /*response*/,
+                                const std::string& reason);
 
-		private:
+                private:
 			const ILogger* logger_;
 
                         boost::asio::io_context io_context_;
