@@ -1,6 +1,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include "../onvif_services/pullpoint/pull_point.h"
+#include "../onvif_services/event_service_utils.h"
 #include "../utility/DateTime.hpp"
 #include "../utility/XmlParser.h"
 
@@ -150,7 +151,7 @@ xmlns=\"http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utili
 
 BOOST_AUTO_TEST_CASE(compare_subscription_references_func)
 {
-	using namespace osrv::event;
+        using namespace osrv::event;
 
 	const std::string full_ref = "http://127.0.0.1:8080/onvif/event_service/s0";
 	const std::string test_subscription_ref = "onvif/event_service/s0";
@@ -158,6 +159,68 @@ BOOST_AUTO_TEST_CASE(compare_subscription_references_func)
 
 	BOOST_TEST(true == compare_subscription_references(full_ref, test_subscription_ref));
 	BOOST_TEST(false == compare_subscription_references(full_ref, test_subscription_ref2));
+}
+
+BOOST_AUTO_TEST_CASE(validates_message_limit_with_defaults)
+{
+        using namespace osrv::event;
+
+        const std::string request =
+                        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\">"
+                        "<s:Body>"
+                        "<PullMessages xmlns=\"http://www.onvif.org/ver10/events/wsdl\">"
+                        "<Timeout>PT1S</Timeout>"
+                        "</PullMessages>"
+                        "</s:Body>"
+                        "</s:Envelope>";
+
+        const auto ptree_request = exns::to_ptree(request);
+        const auto result = validate_message_limit(ptree_request, /*default_message_limit*/ 7, /*max_message_limit*/ 10);
+
+        BOOST_TEST(result.valid);
+        BOOST_TEST(result.message_limit == 7);
+}
+
+BOOST_AUTO_TEST_CASE(rejects_non_positive_message_limits)
+{
+        using namespace osrv::event;
+
+        const std::string request =
+                        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\">"
+                        "<s:Body>"
+                        "<PullMessages xmlns=\"http://www.onvif.org/ver10/events/wsdl\">"
+                        "<Timeout>PT1S</Timeout>"
+                        "<MessageLimit>-5</MessageLimit>"
+                        "</PullMessages>"
+                        "</s:Body>"
+                        "</s:Envelope>";
+
+        const auto ptree_request = exns::to_ptree(request);
+        const auto result = validate_message_limit(ptree_request, /*default_message_limit*/ 5, /*max_message_limit*/ 10);
+
+        BOOST_TEST(!result.valid);
+        BOOST_TEST(result.reason == "MessageLimit must be between 1 and 10");
+}
+
+BOOST_AUTO_TEST_CASE(rejects_oversized_message_limits)
+{
+        using namespace osrv::event;
+
+        const std::string request =
+                        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\">"
+                        "<s:Body>"
+                        "<PullMessages xmlns=\"http://www.onvif.org/ver10/events/wsdl\">"
+                        "<Timeout>PT1S</Timeout>"
+                        "<MessageLimit>25</MessageLimit>"
+                        "</PullMessages>"
+                        "</s:Body>"
+                        "</s:Envelope>";
+
+        const auto ptree_request = exns::to_ptree(request);
+        const auto result = validate_message_limit(ptree_request, /*default_message_limit*/ 5, /*max_message_limit*/ 10);
+
+        BOOST_TEST(!result.valid);
+        BOOST_TEST(result.reason == "MessageLimit must be between 1 and 10");
 }
 
 BOOST_AUTO_TEST_CASE(serialize_notification_messages_func0)

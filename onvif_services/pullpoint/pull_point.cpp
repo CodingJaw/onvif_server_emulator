@@ -173,6 +173,7 @@ namespace osrv
                         // it should be deleted by timeout
                         auto test_subscription_reference = "onvif/event_service/s" + std::to_string(subscription_counter_++);
                         auto pp = std::shared_ptr<PullPoint>(new PullPoint(test_subscription_reference, io_context_, *logger_));
+                        pp->SetMaxMessages(max_message_limit_);
                         pp->SetTimeoutInterval(pullmessages_timeout_seconds_);
 
                         auto now = boost::posix_time::microsec_clock::universal_time();

@@ -242,15 +242,17 @@ namespace osrv
 
 		// NotificationsManager class links clients, PullPoint instances and event generators.
 		// Logic of their cooperation work is implemented in this class.
-		class NotificationsManager
-		{
-		public:
+                class NotificationsManager
+                {
+                public:
                         NotificationsManager(const ILogger& logger, const std::map<std::string, std::string>& xml_namespaces,
-                                int subscription_lease_seconds, int min_renew_interval_seconds, int pullmessages_timeout_seconds)
+                                int subscription_lease_seconds, int min_renew_interval_seconds, int pullmessages_timeout_seconds,
+                                int max_message_limit)
                                 : logger_(&logger)
                                 , subscription_lease_seconds_(subscription_lease_seconds)
                                 , min_renew_interval_seconds_(min_renew_interval_seconds)
                                 , pullmessages_timeout_seconds_(pullmessages_timeout_seconds)
+                                , max_message_limit_(max_message_limit)
                         {
                                 // XML namespaces are those, which added in the beginning of responses
                                 xml_namespaces_ = &xml_namespaces;
@@ -318,6 +320,7 @@ namespace osrv
                         int subscription_lease_seconds_ = 300;
                         int min_renew_interval_seconds_ = 1;
                         int pullmessages_timeout_seconds_ = 60;
+                        int max_message_limit_ = 50;
                         size_t subscription_counter_ = 0;
                 };
 
