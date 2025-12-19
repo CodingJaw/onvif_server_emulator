@@ -100,7 +100,7 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
 																 std::shared_ptr<HttpServer::Request> request)
 {
 	// osrv::auth::SECURITY_LEVELS::READ_MEDIA
-	auto request_tree = exns::to_ptree(request->content.string());
+        auto request_tree = exns::to_ptree(request->content.string());
 
 	auto header_action = exns::find_hierarchy("Envelope.Header.Action", request_tree);
 	auto header_message_id = exns::find_hierarchy("Envelope.Header.MessageID", request_tree);
@@ -116,17 +116,33 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
 	const static std::string ACTION_UNSUBSCRIBE =
 			"http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/UnsubscribeRequest";
 
-	if (header_action == ACTION_PULLMESSAGES)
-	{
-		auto timeout = exns::find_hierarchy("Envelope.Body.PullMessages.Timeout", request_tree);
-		auto messages_limit = std::stoi((exns::find_hierarchy("Envelope.Body.PullMessages.MessageLimit", request_tree)));
+        if (header_action == ACTION_PULLMESSAGES)
+        {
+                auto timeout = exns::find_hierarchy("Envelope.Body.PullMessages.Timeout", request_tree);
+                auto messages_limit = std::stoi((exns::find_hierarchy("Envelope.Body.PullMessages.MessageLimit", request_tree)));
 
-		// NOTE: current implementation reads a timeout from the configuration and ignores a value in the request
-		notifications_manager->PullMessages(response, header_to, header_message_id,
-																				EVENT_CONFIGS_TREE.get<int>("PullPoint.Timeout"), messages_limit);
+                int request_timeout_seconds = EVENT_CONFIGS_TREE.get<int>("PullPoint.Timeout");
+                if (!timeout.empty())
+                {
+                        try
+                        {
+                                // expected format: PT<num>S
+                                if (timeout.size() > 3)
+                                {
+                                        const auto seconds_part = timeout.substr(2, timeout.size() - 3);
+                                        request_timeout_seconds = std::stoi(seconds_part);
+                                }
+                        }
+                        catch (const std::exception&)
+                        {
+                                // fallback to default config timeout
+                        }
+                }
 
-		// If there was no error, a response will be send asynchronously
-	}
+                notifications_manager->PullMessages(response, header_to, header_message_id, request_timeout_seconds, messages_limit);
+
+                // If there was no error, a response will be send asynchronously
+        }
 	else if (header_action == ACTION_RENEWREQUEST)
 	{
 		// it's not need now

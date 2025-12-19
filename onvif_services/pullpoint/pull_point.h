@@ -55,6 +55,7 @@ namespace osrv
                                 , pullmessages_timer_(io_context)
                                 , termination_timer_(io_context)
                                 , max_messages_(50)
+                                , current_message_limit_(50)
                                 , is_client_waiting_(false)
                         {
                         }
@@ -92,7 +93,8 @@ namespace osrv
 			}
 
 			// This method is called when a subscriber want to pull events
-                        void PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response);
+                        void PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response,
+                                int timeout_seconds, int message_limit);
 
 			// This is method by which event generators should pass events,
 			// a new event should be stored to the queue
@@ -186,8 +188,10 @@ namespace osrv
 
                         const std::string subscription_ref_;
                         int timeout_interval_ = 60;
+                        int current_timeout_interval_seconds_ = timeout_interval_;
 
-			int max_messages_;
+                        int max_messages_ = 50;
+                        int current_message_limit_ = 50;
 
 			std::deque<NotificationMessage> events_;
 
