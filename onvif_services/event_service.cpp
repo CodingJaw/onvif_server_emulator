@@ -12,6 +12,7 @@
 
 #include "../Simple-Web-Server/server_http.hpp"
 
+#include <boost/algorithm/string/trim.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
@@ -58,12 +59,22 @@ struct CreatePullPointSubscriptionHandler : public utility::http::RequestHandler
 	{
 	}
 
-	OVERLOAD_REQUEST_HANDLER
-	{
-		// TODO: Handler filters
+        OVERLOAD_REQUEST_HANDLER
+        {
+                auto request_tree = exns::to_ptree(request->content.string());
+                std::vector<std::string> topic_filters;
+                const auto topic_nodes = exns::find_hierarchy_elements(
+                                "Envelope.Body.CreatePullPointSubscription.Filter.TopicExpression", request_tree);
+                for (const auto& topic_node : topic_nodes)
+                {
+                        auto topic_value = topic_node->second.get_value<std::string>("");
+                        boost::algorithm::trim(topic_value);
+                        if (!topic_value.empty())
+                                topic_filters.push_back(std::move(topic_value));
+                }
 
-		pt::ptree analytics_configs;
-		auto envelope_tree = utility::soap::getEnvelopeTree(XML_NAMESPACES);
+                pt::ptree analytics_configs;
+                auto envelope_tree = utility::soap::getEnvelopeTree(XML_NAMESPACES);
 
 		envelope_tree.add("s:Header.wsa:Action",
 											"http://www.onvif.org/ver10/events/wsdl/EventPortType/CreatePullPointSubscriptionResponse");
@@ -74,7 +85,7 @@ struct CreatePullPointSubscriptionHandler : public utility::http::RequestHandler
 		std::string sub_ref = "http://";
 		sub_ref += server_configs->ipv4_address_ + ":" + port + "/";
 
-		auto pullpoint = notifications_manager->CreatePullPoint();
+                auto pullpoint = notifications_manager->CreatePullPoint(topic_filters);
 		sub_ref += pullpoint->GetSubscriptionReference();
 
 		pt::ptree response_node;
