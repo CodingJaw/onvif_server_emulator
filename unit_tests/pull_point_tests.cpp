@@ -564,6 +564,32 @@ BOOST_AUTO_TEST_CASE(pullmessages_rejects_unknown_subscription_with_resource_unk
         BOOST_TEST(parsed.get<std::string>("s:Envelope.s:Body.s:Fault.s:Reason.s:Text") == "Unknown SubscriptionReference");
 }
 
+BOOST_AUTO_TEST_CASE(renew_rejects_unknown_subscription_with_resource_unknown_fault)
+{
+        using namespace osrv::event;
+
+        DummyLogger logger;
+        std::map<std::string, std::string> namespaces{{"s", "http://www.w3.org/2003/05/soap-envelope"},
+                        {"wsa", "http://www.w3.org/2005/08/addressing"},
+                        {"wsnt", "http://docs.oasis-open.org/wsn/b-2"},
+                        {"wstop", "http://docs.oasis-open.org/wsn/t-1"}};
+
+        NotificationsManager manager(logger, namespaces, 1, 0, 60);
+
+        ResponseCaptureServer capture_server;
+        auto response = capture_server.MakeResponse();
+
+        manager.Renew(response, "unknown-subscription", "urn:uuid:renew-msg", std::nullopt);
+
+        const auto response_body = capture_server.ExtractBody(response);
+        const auto parsed = exns::to_ptree(response_body);
+
+        BOOST_TEST(parsed.get<std::string>("s:Envelope.s:Body.s:Fault.s:Code.s:Value") == "s:Sender");
+        BOOST_TEST(parsed.get<std::string>("s:Envelope.s:Body.s:Fault.s:Code.s:Subcode.s:Value") == "wstop:ResourceUnknown");
+        BOOST_TEST(parsed.get<std::string>("s:Envelope.s:Body.s:Fault.s:Reason.s:Text") == "Unknown SubscriptionReference");
+        BOOST_TEST(!parsed.get_optional<std::string>("s:Envelope.s:Body.wsnt:RenewResponse.wsnt:TerminationTime"));
+}
+
 BOOST_AUTO_TEST_CASE(renewed_subscription_outlives_peers)
 {
         using namespace osrv::event;
