@@ -110,12 +110,12 @@ private:
 			{
 				logger_->Error("Probe's messageID is empty! Probe match dropped!");
 			}
-			else
-			{
-				response_ = osrv::discovery::utility::prepare_response(osrv::discovery::utility::generate_uuid(), relatesTo,
-																															 std::move(response_));
+                        else
+                        {
+                                response_ = osrv::discovery::utility::prepare_response(
+                                                osrv::discovery::utility::generate_uuid(), relatesTo, std::move(response_));
 
-				socket_->async_send_to(
+                                socket_->async_send_to(
 						ba::buffer(response_), remote_endpoint_,
 						[this](const boost::system::error_code& ec, std::size_t bytes_transferred) {
 							if (ec)
@@ -164,11 +164,11 @@ namespace osrv
 {
 namespace discovery
 {
-void init_service(const std::string& configs_path, ILogger& logger)
+void init_service(const std::string& configs_path, ILogger& logger, const std::string& device_service_xaddr)
 {
-	logger_ = &logger;
+        logger_ = &logger;
 
-	logger_->Info("Initiating Discovery Service");
+        logger_->Info("Initiating Discovery Service");
 
 	CONFIGS_PATH = configs_path;
 
@@ -178,10 +178,12 @@ void init_service(const std::string& configs_path, ILogger& logger)
 		throw std::runtime_error("Can't open: " + DISCOVERY_RESPONSE_FILE);
 	}
 
-	std::string response;
-	response.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+        std::string response;
+        response.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
 
-	discovery_manager_ = std::make_shared<DiscoveryManager>(logger, std::move(response));
+        response = utility::inject_xaddr(std::move(response), device_service_xaddr);
+
+        discovery_manager_ = std::make_shared<DiscoveryManager>(logger, std::move(response));
 }
 
 void start()
@@ -220,13 +222,22 @@ std::string extract_message_id(const boost::property_tree::ptree& tree)
 
 std::string prepare_response(const std::string& messageID, const std::string& relatesTo, std::string&& response)
 {
-	// TODO: replace MessageID
-	std::regex re_msg_id("(<.*MessageID>)(.*)(</.*MessageID>)");
-	response = std::regex_replace(response, re_msg_id, "$1" + messageID + "$3");
+        // TODO: replace MessageID
+        std::regex re_msg_id("(<.*MessageID>)(.*)(</.*MessageID>)");
+        response = std::regex_replace(response, re_msg_id, "$1" + messageID + "$3");
 
-	// replace RelatesTo uuid
-	std::regex re_rel_to("(<.*RelatesTo>)(.*)(</.*RelatesTo>)");
-	return std::regex_replace(response, re_rel_to, "$1" + relatesTo + "$3");
+        // replace RelatesTo uuid
+        std::regex re_rel_to("(<.*RelatesTo>)(.*)(</.*RelatesTo>)");
+        return std::regex_replace(response, re_rel_to, "$1" + relatesTo + "$3");
+}
+
+std::string inject_xaddr(std::string response, const std::string& device_service_xaddr)
+{
+        if (device_service_xaddr.empty())
+                return response;
+
+        std::regex xaddr_regex("(<[^<]*XAddrs>)(.*?)(</[^<]*XAddrs>)");
+        return std::regex_replace(response, xaddr_regex, "$1" + device_service_xaddr + "$3");
 }
 
 std::string generate_uuid(std::string uuid)

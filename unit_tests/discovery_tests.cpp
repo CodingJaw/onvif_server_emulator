@@ -41,9 +41,9 @@ BOOST_AUTO_TEST_CASE(generate_uuid_func)
 
 BOOST_AUTO_TEST_CASE(prepare_resposne_func)
 {
-	const std::string response_test_file = "../../unit_tests/test_data/discovery_service_test.responses";
-	std::ifstream ifs(response_test_file);
-	BOOST_TEST(true == ifs.is_open());
+        const std::string response_test_file = "../../unit_tests/test_data/discovery_service_test.responses";
+        std::ifstream ifs(response_test_file);
+        BOOST_TEST(true == ifs.is_open());
 
 	std::string response;
 	response.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
@@ -63,6 +63,27 @@ BOOST_AUTO_TEST_CASE(prepare_resposne_func)
 	auto actual_msg_id = exns::find_hierarchy("Envelope.Header.MessageID", response_tree);
 	BOOST_TEST(actual_msg_id == expected_message_id);
 
-	auto actual_related_to = exns::find_hierarchy("Envelope.Header.RelatesTo", response_tree);
-	BOOST_TEST(actual_related_to == expected_relatesTo_id);
+        auto actual_related_to = exns::find_hierarchy("Envelope.Header.RelatesTo", response_tree);
+        BOOST_TEST(actual_related_to == expected_relatesTo_id);
+}
+
+BOOST_AUTO_TEST_CASE(inject_xaddr_func)
+{
+        const std::string response_test_file = "../../unit_tests/test_data/discovery_service_test.responses";
+        std::ifstream ifs(response_test_file);
+        BOOST_TEST(true == ifs.is_open());
+
+        std::string response;
+        response.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+
+        const std::string expected_xaddr = "http://10.0.10.237:8080/onvif/device_service";
+        response = osrv::discovery::utility::inject_xaddr(std::move(response), expected_xaddr);
+
+        namespace pt = boost::property_tree;
+        std::istringstream is(response);
+        pt::ptree response_tree;
+        pt::xml_parser::read_xml(is, response_tree);
+
+        auto actual_xaddr = exns::find_hierarchy("Envelope.Body.ProbeMatches.ProbeMatch.XAddrs", response_tree);
+        BOOST_TEST(actual_xaddr == expected_xaddr);
 }
