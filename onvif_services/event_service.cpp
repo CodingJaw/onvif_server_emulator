@@ -442,8 +442,13 @@ void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_ins
 	for (const auto& n : namespaces_tree)
 		XML_NAMESPACES.insert({n.first, n.second.get_value<std::string>()});
 
-	notifications_manager =
-			std::unique_ptr<osrv::event::NotificationsManager>(new osrv::event::NotificationsManager(logger, XML_NAMESPACES));
+        const auto subscription_lifetime_seconds = EVENT_CONFIGS_TREE.get<int>("PullPoint.SubscriptionLifetimeSeconds", 300);
+        const auto min_renew_interval_seconds = EVENT_CONFIGS_TREE.get<int>("PullPoint.MinRenewIntervalSeconds", 1);
+        const auto pullpoint_timeout = EVENT_CONFIGS_TREE.get<int>("PullPoint.Timeout");
+
+        notifications_manager =
+                        std::unique_ptr<osrv::event::NotificationsManager>(new osrv::event::NotificationsManager(logger, XML_NAMESPACES,
+                                        subscription_lifetime_seconds, min_renew_interval_seconds, pullpoint_timeout));
 
 	// TODO: reading events generating interval from configs
 	// add event generators

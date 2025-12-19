@@ -11,7 +11,7 @@ namespace osrv
 namespace discovery
 {
 // should be called before before start
-void init_service(const std::string& /*configs_path*/, ILogger& /*logger*/);
+void init_service(const std::string& /*configs_path*/, ILogger& /*logger*/, const std::string& /*device_service_xaddr*/);
 
 /**
  * will throw an exception if it's called before @init
@@ -31,7 +31,9 @@ std::string extract_message_id(const boost::property_tree::ptree& /*probe_msg*/)
  * to change MessageID and RelatesTo values
  */
 std::string prepare_response(const std::string& /*messageID*/, const std::string& /*relatesTo*/,
-														 std::string&& /*response*/);
+                                                                                                                 std::string&& /*response*/);
+
+std::string inject_xaddr(std::string /*response*/, const std::string& /*device_service_xaddr*/);
 
 /**
  * user should pass corrected uuid

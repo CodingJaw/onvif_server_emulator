@@ -102,8 +102,16 @@ void Server::init()
 	RecordingSearchService()->Run();
 	ReplayControlService()->Run();
 
-	event::init_service(*http_server_, *server_configs_, configs_dir, *logger_);
-	discovery::init_service(configs_dir, *logger_);
+        event::init_service(*http_server_, *server_configs_, configs_dir, *logger_);
+
+        auto discovery_xaddr = ServerAddress();
+        if (!discovery_xaddr.empty() && discovery_xaddr.back() == '/')
+        {
+                discovery_xaddr.pop_back();
+        }
+        discovery_xaddr += "/onvif/device_service";
+
+        discovery::init_service(configs_dir, *logger_, discovery_xaddr);
 
 	// TODO: impl. logic for multichannel cannel
 	auto audio_node = profiles_config_->get_child(CONFIGURATION_ENUMERATION[CONFIGURATION_TYPE::AUDIOENCODER]).front();

@@ -10,6 +10,20 @@
 namespace
 {
 namespace pt = boost::property_tree;
+
+struct DummyLogger : ILogger
+{
+        DummyLogger()
+                        : ILogger(ILogger::LVL_DEBUG)
+        {
+        }
+
+        void Error(const std::string&) const override {}
+        void Warn(const std::string&) const override {}
+        void Info(const std::string&) const override {}
+        void Debug(const std::string&) const override {}
+        void Trace(const std::string&) const override {}
+};
 }
 
 /* FIX: the tested function @parse_pullmessages  was deleted, add restore these tests and generalize function
@@ -117,11 +131,16 @@ BOOST_AUTO_TEST_CASE(compare_subscription_references_func)
 
 BOOST_AUTO_TEST_CASE(serialize_notification_messages_func0)
 {
-	// empty queue
-	using namespace osrv::event;
+        // empty queue
+        using namespace osrv::event;
 
-	std::deque<NotificationMessage> msgs;
-	boost::property_tree::ptree res = serialize_notification_messages(msgs, {});
+        std::deque<NotificationMessage> msgs;
+        boost::asio::io_context io;
+        DummyLogger logger;
+        auto pullpoint = std::make_shared<PullPoint>("onvif/event_service/s0", io, logger);
+        auto now = boost::posix_time::microsec_clock::universal_time();
+        pullpoint->SetSubscriptionTimes(now, now, now + boost::posix_time::seconds(60));
+        boost::property_tree::ptree res = serialize_notification_messages(msgs, *pullpoint);
 
 	auto ctime = exns::find_hierarchy("CurrentTime", res);
 	auto ttime = exns::find_hierarchy("TerminationTime", res);
@@ -132,22 +151,63 @@ BOOST_AUTO_TEST_CASE(serialize_notification_messages_func0)
 
 BOOST_AUTO_TEST_CASE(serialize_notification_messages_func1)
 {
-	using namespace osrv::event;
+        using namespace osrv::event;
 
-	std::deque<NotificationMessage> msgs;
+        std::deque<NotificationMessage> msgs;
 
-	NotificationMessage test_msg;
-	test_msg.source_item_descriptions.push_back({"ItemName", "ItemValue"});
+        NotificationMessage test_msg;
+        test_msg.source_item_descriptions.push_back({"ItemName", "ItemValue"});
 
-	msgs.push_back(test_msg);
+        msgs.push_back(test_msg);
 
-	boost::property_tree::ptree res = serialize_notification_messages(msgs, {});
+        boost::asio::io_context io;
+        DummyLogger logger;
+        auto pullpoint = std::make_shared<PullPoint>("onvif/event_service/s0", io, logger);
+        auto now = boost::posix_time::microsec_clock::universal_time();
+        pullpoint->SetSubscriptionTimes(now, now, now + boost::posix_time::seconds(60));
+        boost::property_tree::ptree res = serialize_notification_messages(msgs, *pullpoint);
 
 	auto name =
 			res.get<std::string>("wsnt:NotificationMessage.wsnt:Message.tt:Message.tt:Source.tt:SimpleItem.<xmlattr>.Name");
 	BOOST_TEST(name == "ItemName");
 
-	auto value =
-			res.get<std::string>("wsnt:NotificationMessage.wsnt:Message.tt:Message.tt:Source.tt:SimpleItem.<xmlattr>.Value");
-	BOOST_TEST(value == "ItemValue");
+        auto value =
+                        res.get<std::string>("wsnt:NotificationMessage.wsnt:Message.tt:Message.tt:Source.tt:SimpleItem.<xmlattr>.Value");
+        BOOST_TEST(value == "ItemValue");
+}
+
+BOOST_AUTO_TEST_CASE(rejects_rapid_renewals)
+{
+        using namespace osrv::event;
+        boost::asio::io_context io;
+        DummyLogger logger;
+        auto pullpoint = std::make_shared<PullPoint>("onvif/event_service/s0", io, logger);
+
+        auto created = boost::posix_time::second_clock::universal_time();
+        auto lease = boost::posix_time::seconds(300);
+        auto min_interval = boost::posix_time::seconds(2);
+        pullpoint->SetSubscriptionTimes(created, created, created + lease);
+
+        auto first_attempt = created + boost::posix_time::seconds(1);
+        BOOST_TEST(false == pullpoint->TryRenew(first_attempt, lease, min_interval));
+        BOOST_TEST(pullpoint->GetTerminationTimePoint() == created + lease);
+
+        auto allowed_attempt = created + boost::posix_time::seconds(3);
+        BOOST_TEST(true == pullpoint->TryRenew(allowed_attempt, lease, min_interval));
+        BOOST_TEST(pullpoint->GetTerminationTimePoint() == allowed_attempt + lease);
+}
+
+BOOST_AUTO_TEST_CASE(expiration_detection)
+{
+        using namespace osrv::event;
+        boost::asio::io_context io;
+        DummyLogger logger;
+        auto pullpoint = std::make_shared<PullPoint>("onvif/event_service/s0", io, logger);
+
+        auto created = boost::posix_time::second_clock::universal_time();
+        auto lease = boost::posix_time::seconds(10);
+        pullpoint->SetSubscriptionTimes(created, created, created + lease);
+
+        BOOST_TEST(false == pullpoint->IsExpired(created + boost::posix_time::seconds(5)));
+        BOOST_TEST(true == pullpoint->IsExpired(created + boost::posix_time::seconds(15)));
 }
