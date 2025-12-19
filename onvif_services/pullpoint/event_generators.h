@@ -42,11 +42,16 @@ namespace osrv
 				alarm_timer_.cancel();
 			}
 
-			//This will be connected
-			boost::signals2::connection Connect(std::function<void(NotificationMessage)> f)
-			{
-				return event_signal_.connect(f);
-			}
+                        //This will be connected
+                        boost::signals2::connection Connect(std::function<void(NotificationMessage)> f)
+                        {
+                                return event_signal_.connect(f);
+                        }
+
+                        const std::string& Topic() const
+                        {
+                                return notifications_topic_;
+                        }
 
 			// returns a NotificationMessage with 'PropertyOperation' equals "Initialized"
 			virtual std::deque<NotificationMessage> GenerateSynchronizationEvent() const = 0;

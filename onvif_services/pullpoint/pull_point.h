@@ -9,6 +9,7 @@
 #include <thread>
 #include <memory>
 #include <chrono>
+#include <vector>
 
 #include <boost/asio.hpp>
 #include <boost/signals2.hpp>
@@ -228,7 +229,7 @@ namespace osrv
 			// It's required to generate unique link for each subscriber 
 			// Also need to schedule a subscription expiration timeout - and in that case delete subscription
 			// Returns the created subscription's reference
-			std::shared_ptr<PullPoint> CreatePullPoint();
+                        std::shared_ptr<PullPoint> CreatePullPoint(const std::vector<std::string>& topic_filters);
 
 			// If there are messages for specified subscriber - return them immediately
 			// Otherwise wait until timeout or any events will be generated 

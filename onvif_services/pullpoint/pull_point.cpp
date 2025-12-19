@@ -8,6 +8,7 @@
 
 #include <sstream>
 #include <algorithm>
+#include <vector>
 
 #include <boost/property_tree/xml_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
@@ -105,7 +106,20 @@ namespace osrv
                                 });
                 }
 		
-                std::shared_ptr<PullPoint> NotificationsManager::CreatePullPoint()
+                namespace
+                {
+                        bool topic_matches_filters(const std::string& topic, const std::vector<std::string>& filters)
+                        {
+                                if (filters.empty())
+                                        return true;
+
+                                return std::any_of(filters.begin(), filters.end(), [&topic](const std::string& filter) {
+                                        return topic == filter;
+                                });
+                        }
+                }
+
+                std::shared_ptr<PullPoint> NotificationsManager::CreatePullPoint(const std::vector<std::string>& topic_filters)
                 {
                         // When register a new PullPoint
                         // depending on subcription filter in a request
@@ -134,20 +148,23 @@ namespace osrv
                         pullpoints_.push_back(pp);
                         for (auto& eg : event_generators_)
                         {
+                                if (!topic_matches_filters(eg->Topic(), topic_filters))
+                                        continue;
+
                                 // It's may increase waiting time for already connected clients
                                 // and now it properly works only for 1 subscriber
-				// but it's help to notifiying that one exactly in specified time interval
-				eg->Stop();
-				eg->Run();
+                                // but it's help to notifiying that one exactly in specified time interval
+                                eg->Stop();
+                                eg->Run();
 
-				auto signal_connection = eg->Connect([pp, this](NotificationMessage event_description) {
-						pp->Notify(std::move(event_description));
-					});
-				pp->AddGenerator(eg.get(), signal_connection);
-			}
+                                auto signal_connection = eg->Connect([pp, this](NotificationMessage event_description) {
+                                                pp->Notify(std::move(event_description));
+                                        });
+                                pp->AddGenerator(eg.get(), signal_connection);
+                        }
 
-			return pp;
-		}
+                        return pp;
+                }
 		
                 void NotificationsManager::PullMessages(std::shared_ptr<HttpServer::Response> response,
                         const std::string& subscription_reference, const std::string& msg_id, int timeout, int msg_limit)
