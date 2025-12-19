@@ -7,6 +7,7 @@
 
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
+#include <boost/asio/buffer.hpp>
 #include <chrono>
 #include <map>
 #include <memory>
@@ -56,6 +57,27 @@ public:
 
 protected:
         void generate_event() override {}
+};
+
+class ResponseCaptureServer : public SimpleWeb::Server<osrv::socket_t>
+{
+public:
+        std::shared_ptr<Response> MakeResponse()
+        {
+                return std::shared_ptr<Response>(new Response(nullptr, 0));
+        }
+
+        std::string ExtractBody(const std::shared_ptr<Response>& response) const
+        {
+                const auto buffers = response->streambuf->data();
+                const std::string raw(boost::asio::buffers_begin(buffers), boost::asio::buffers_end(buffers));
+
+                const auto body_pos = raw.find("\r\n\r\n");
+                if (body_pos == std::string::npos)
+                        return raw;
+
+                return raw.substr(body_pos + 4);
+        }
 };
 }
 
@@ -515,6 +537,31 @@ BOOST_AUTO_TEST_CASE(set_synchronization_point_rejects_unknown_subscription)
                                         [](const std::runtime_error& ex) {
                                                 return std::string(ex.what()) == "Invalid subscription reference";
                                         });
+}
+
+BOOST_AUTO_TEST_CASE(pullmessages_rejects_unknown_subscription_with_resource_unknown_fault)
+{
+        using namespace osrv::event;
+
+        DummyLogger logger;
+        std::map<std::string, std::string> namespaces{{"s", "http://www.w3.org/2003/05/soap-envelope"},
+                        {"wsa", "http://www.w3.org/2005/08/addressing"},
+                        {"tet", "http://www.onvif.org/ver10/events/wsdl"},
+                        {"wstop", "http://docs.oasis-open.org/wsn/t-1"}};
+
+        NotificationsManager manager(logger, namespaces, 1, 0, 60);
+
+        ResponseCaptureServer capture_server;
+        auto response = capture_server.MakeResponse();
+
+        manager.PullMessages(response, "unknown-subscription", "urn:uuid:pull-msg", 0, 1);
+
+        const auto response_body = capture_server.ExtractBody(response);
+        const auto parsed = exns::to_ptree(response_body);
+
+        BOOST_TEST(parsed.get<std::string>("s:Envelope.s:Body.s:Fault.s:Code.s:Value") == "s:Sender");
+        BOOST_TEST(parsed.get<std::string>("s:Envelope.s:Body.s:Fault.s:Code.s:Subcode.s:Value") == "wstop:ResourceUnknown");
+        BOOST_TEST(parsed.get<std::string>("s:Envelope.s:Body.s:Fault.s:Reason.s:Text") == "Unknown SubscriptionReference");
 }
 
 BOOST_AUTO_TEST_CASE(renewed_subscription_outlives_peers)
