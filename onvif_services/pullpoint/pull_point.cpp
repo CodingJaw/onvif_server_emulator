@@ -32,6 +32,12 @@ namespace osrv
                         current_timeout_interval_seconds_ = timeout_seconds > 0 ? timeout_seconds : timeout_interval_;
                         current_message_limit_ = message_limit > 0 ? std::min(message_limit, max_messages_) : max_messages_;
 
+                        if (timeout_seconds == 0)
+                        {
+                                response_to_pullmessages();
+                                return;
+                        }
+
                         if (!events_.empty())
                         {
                                 // Response to a subcriber immediately

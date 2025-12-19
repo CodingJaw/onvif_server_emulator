@@ -452,6 +452,26 @@ BOOST_AUTO_TEST_CASE(caps_backlog_for_idle_subscriptions)
         BOOST_TEST(received.back().data_value == "4");
 }
 
+BOOST_AUTO_TEST_CASE(responds_immediately_when_timeout_zero_and_no_events)
+{
+        using namespace osrv::event;
+        boost::asio::io_context io;
+        DummyLogger logger;
+        auto pullpoint = std::make_shared<PullPoint>("onvif/event_service/s0", io, logger);
+
+        bool handler_called = false;
+        std::deque<NotificationMessage> received;
+        pullpoint->PullMessages([
+                        &handler_called, &received](std::shared_ptr<PullPoint>, std::deque<NotificationMessage>&& events,
+                        std::shared_ptr<HttpServer::Response>) {
+                handler_called = true;
+                received = std::move(events);
+        }, nullptr, 0, 10);
+
+        BOOST_TEST(handler_called);
+        BOOST_TEST(received.empty());
+}
+
 BOOST_AUTO_TEST_CASE(expired_subscriptions_do_not_affect_active_ones)
 {
         using namespace osrv::event;
