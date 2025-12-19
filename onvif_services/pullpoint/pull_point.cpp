@@ -106,10 +106,12 @@ namespace osrv
                         // it should be deleted by timeout
                         auto test_subscription_reference = "onvif/event_service/s" + std::to_string(subscription_counter_++);
                         auto pp = std::shared_ptr<PullPoint>(new PullPoint(test_subscription_reference, io_context_, *logger_));
+                        pp->SetTimeoutInterval(pullmessages_timeout_seconds_);
+
                         auto now = boost::posix_time::microsec_clock::universal_time();
-                        auto termination_time = now + boost::posix_time::seconds(subscription_ttl_seconds_);
+                        auto termination_time = now + boost::posix_time::seconds(subscription_lease_seconds_);
                         pp->SetSubscriptionTimes(now, now, termination_time);
-                        pp->RefreshTerminationTimer(std::chrono::seconds(subscription_ttl_seconds_),
+                        pp->RefreshTerminationTimer(std::chrono::seconds(subscription_lease_seconds_),
                                 [this, weak_pp = std::weak_ptr<PullPoint>(pp)](const std::string& ref) {
                                         auto shared_pp = weak_pp.lock();
                                         if (shared_pp)
@@ -140,22 +142,66 @@ namespace osrv
                 void NotificationsManager::PullMessages(std::shared_ptr<HttpServer::Response> response,
                         const std::string& subscription_reference, const std::string& msg_id, int timeout, int msg_limit)
                 {
+                        (void)timeout;
+                        (void)msg_limit;
+
                         auto pp_it = find_pullpoint(pullpoints_, subscription_reference);
 
                         if (pp_it != pullpoints_.end())
                         {
+                                auto now = boost::posix_time::microsec_clock::universal_time();
+                                if ((*pp_it)->IsExpired(now))
+                                {
+                                        (*pp_it)->DisconnectFromGenerators();
+                                        pullpoints_.erase(pp_it);
+
+                                        logger_->Error("PullMessages received for expired subscription: " + subscription_reference);
+                                        auto envelope_tree = utility::soap::getEnvelopeTree(*xml_namespaces_);
+                                        boost::property_tree::ptree code_node;
+                                        code_node.add("s:Value", "s:Sender");
+                                        code_node.add("s:Subcode.s:Value", "wstop:ResourceUnknown");
+                                        envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+                                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", "Subscription expired");
+                                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+                                        boost::property_tree::ptree root_tree;
+                                        root_tree.put_child("s:Envelope", envelope_tree);
+
+                                        std::ostringstream os;
+                                        boost::property_tree::write_xml(os, root_tree);
+
+                                        utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+                                        return;
+                                }
+
                                 (*pp_it)->PullMessages([msg_id, this](std::shared_ptr<PullPoint> pullpoint, std::deque<NotificationMessage> events,
                                                 std::shared_ptr<HttpServer::Response> response) {
                                                 do_pullmessages_response(pullpoint, msg_id, std::move(events), response);
                                         }, response);
                         }
-			else
-			{
-				// ? Need to check specification, more likely it's need to response with an error code
-				logger_->Error("Not found subscription reference: " + subscription_reference);
-				return;
-			}
-		}
+                        else
+                        {
+                                // ? Need to check specification, more likely it's need to response with an error code
+                                logger_->Error("Not found subscription reference: " + subscription_reference);
+                                auto envelope_tree = utility::soap::getEnvelopeTree(*xml_namespaces_);
+
+                                boost::property_tree::ptree code_node;
+                                code_node.add("s:Value", "s:Sender");
+                                code_node.add("s:Subcode.s:Value", "ter:InvalidArgVal");
+                                envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+                                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", "Unknown SubscriptionReference");
+                                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+                                boost::property_tree::ptree root_tree;
+                                root_tree.put_child("s:Envelope", envelope_tree);
+
+                                std::ostringstream os;
+                                boost::property_tree::write_xml(os, root_tree);
+
+                                utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+                                return;
+                        }
+                }
 
 		void NotificationsManager::SetSynchronizationPoint(const std::string& subscr_ref)
 		{
@@ -214,9 +260,36 @@ namespace osrv
                         }
 
                         auto now = boost::posix_time::microsec_clock::universal_time();
-                        auto termination_time = now + boost::posix_time::seconds(subscription_ttl_seconds_);
-                        (*pp_it)->UpdateRenewal(now, termination_time);
-                        (*pp_it)->RefreshTerminationTimer(std::chrono::seconds(subscription_ttl_seconds_),
+
+                        if ((*pp_it)->IsExpired(now))
+                        {
+                                (*pp_it)->DisconnectFromGenerators();
+                                pullpoints_.erase(pp_it);
+
+                                auto envelope_tree = utility::soap::getEnvelopeTree(*xml_namespaces_);
+                                boost::property_tree::ptree code_node;
+                                code_node.add("s:Value", "s:Sender");
+                                code_node.add("s:Subcode.s:Value", "wstop:ResourceUnknown");
+                                envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+                                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", "Subscription expired");
+                                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+                                boost::property_tree::ptree root_tree;
+                                root_tree.put_child("s:Envelope", envelope_tree);
+
+                                std::ostringstream os;
+                                boost::property_tree::write_xml(os, root_tree);
+
+                                utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+                                return;
+                        }
+
+                        bool renewed = (*pp_it)->TryRenew(now,
+                                        boost::posix_time::seconds(subscription_lease_seconds_),
+                                        boost::posix_time::seconds(min_renew_interval_seconds_));
+                        if (renewed)
+                        {
+                                (*pp_it)->RefreshTerminationTimer(std::chrono::seconds(subscription_lease_seconds_),
                                 [this, weak_pp = std::weak_ptr<PullPoint>(*pp_it)](const std::string& ref) {
                                         auto shared_pp = weak_pp.lock();
                                         if (shared_pp)
@@ -226,6 +299,11 @@ namespace osrv
                                         if (it != pullpoints_.end())
                                                 pullpoints_.erase(it);
                                 });
+                        }
+                        else
+                        {
+                                logger_->Warn("Ignoring rapid renew request for subscription: " + header_to);
+                        }
 
                         namespace pt = boost::property_tree;
 

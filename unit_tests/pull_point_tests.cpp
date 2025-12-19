@@ -151,7 +151,7 @@ BOOST_AUTO_TEST_CASE(serialize_notification_messages_func0)
 
 BOOST_AUTO_TEST_CASE(serialize_notification_messages_func1)
 {
-	using namespace osrv::event;
+        using namespace osrv::event;
 
         std::deque<NotificationMessage> msgs;
 
@@ -171,7 +171,43 @@ BOOST_AUTO_TEST_CASE(serialize_notification_messages_func1)
 			res.get<std::string>("wsnt:NotificationMessage.wsnt:Message.tt:Message.tt:Source.tt:SimpleItem.<xmlattr>.Name");
 	BOOST_TEST(name == "ItemName");
 
-	auto value =
-			res.get<std::string>("wsnt:NotificationMessage.wsnt:Message.tt:Message.tt:Source.tt:SimpleItem.<xmlattr>.Value");
-	BOOST_TEST(value == "ItemValue");
+        auto value =
+                        res.get<std::string>("wsnt:NotificationMessage.wsnt:Message.tt:Message.tt:Source.tt:SimpleItem.<xmlattr>.Value");
+        BOOST_TEST(value == "ItemValue");
+}
+
+BOOST_AUTO_TEST_CASE(rejects_rapid_renewals)
+{
+        using namespace osrv::event;
+        boost::asio::io_context io;
+        DummyLogger logger;
+        auto pullpoint = std::make_shared<PullPoint>("onvif/event_service/s0", io, logger);
+
+        auto created = boost::posix_time::second_clock::universal_time();
+        auto lease = boost::posix_time::seconds(300);
+        auto min_interval = boost::posix_time::seconds(2);
+        pullpoint->SetSubscriptionTimes(created, created, created + lease);
+
+        auto first_attempt = created + boost::posix_time::seconds(1);
+        BOOST_TEST(false == pullpoint->TryRenew(first_attempt, lease, min_interval));
+        BOOST_TEST(pullpoint->GetTerminationTimePoint() == created + lease);
+
+        auto allowed_attempt = created + boost::posix_time::seconds(3);
+        BOOST_TEST(true == pullpoint->TryRenew(allowed_attempt, lease, min_interval));
+        BOOST_TEST(pullpoint->GetTerminationTimePoint() == allowed_attempt + lease);
+}
+
+BOOST_AUTO_TEST_CASE(expiration_detection)
+{
+        using namespace osrv::event;
+        boost::asio::io_context io;
+        DummyLogger logger;
+        auto pullpoint = std::make_shared<PullPoint>("onvif/event_service/s0", io, logger);
+
+        auto created = boost::posix_time::second_clock::universal_time();
+        auto lease = boost::posix_time::seconds(10);
+        pullpoint->SetSubscriptionTimes(created, created, created + lease);
+
+        BOOST_TEST(false == pullpoint->IsExpired(created + boost::posix_time::seconds(5)));
+        BOOST_TEST(true == pullpoint->IsExpired(created + boost::posix_time::seconds(15)));
 }

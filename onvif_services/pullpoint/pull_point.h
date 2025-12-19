@@ -92,7 +92,7 @@ namespace osrv
 			}
 
 			// This method is called when a subscriber want to pull events
-			void PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response);
+                        void PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response);
 
 			// This is method by which event generators should pass events,
 			// a new event should be stored to the queue
@@ -105,9 +105,19 @@ namespace osrv
                                 return utility::datetime::posix_datetime_to_utc(last_renew_time_);
                         }
 
+                        const boost::posix_time::ptime& GetLastRenewTimePoint() const
+                        {
+                                return last_renew_time_;
+                        }
+
                         std::string GetTerminationTime() const
                         {
                                 return utility::datetime::posix_datetime_to_utc(termination_time_);
+                        }
+
+                        const boost::posix_time::ptime& GetTerminationTimePoint() const
+                        {
+                                return termination_time_;
                         }
 
                         void SetSubscriptionTimes(const boost::posix_time::ptime& created_at,
@@ -119,11 +129,19 @@ namespace osrv
                                 termination_time_ = termination_time;
                         }
 
-                        void UpdateRenewal(const boost::posix_time::ptime& last_renew_at,
-                                const boost::posix_time::ptime& termination_time)
+                        bool TryRenew(const boost::posix_time::ptime& requested_at,
+                                const boost::posix_time::time_duration& lease_duration,
+                                const boost::posix_time::time_duration& min_renew_interval)
                         {
-                                last_renew_time_ = last_renew_at;
-                                termination_time_ = termination_time;
+                                if (!last_renew_time_.is_not_a_date_time() && (requested_at - last_renew_time_) < min_renew_interval)
+                                {
+                                        return false;
+                                }
+
+                                last_renew_time_ = requested_at;
+                                termination_time_ = requested_at + lease_duration;
+
+                                return true;
                         }
 
                         void RefreshTerminationTimer(std::chrono::steady_clock::duration duration,
@@ -134,10 +152,20 @@ namespace osrv
                                 termination_timer_.cancel();
                         }
 
-			void SetMaxMessages(size_t n)
-			{
-				max_messages_ = n;
-			}
+                        void SetMaxMessages(size_t n)
+                        {
+                                max_messages_ = n;
+                        }
+
+                        void SetTimeoutInterval(int seconds)
+                        {
+                                timeout_interval_ = seconds;
+                        }
+
+                        bool IsExpired(const boost::posix_time::ptime& now) const
+                        {
+                                return !termination_time_.is_not_a_date_time() && now >= termination_time_;
+                        }
 
 		protected:
 			// This is called in 3 cases:
@@ -182,9 +210,11 @@ namespace osrv
 		{
 		public:
                         NotificationsManager(const ILogger& logger, const std::map<std::string, std::string>& xml_namespaces,
-                                int subscription_ttl_seconds)
+                                int subscription_lease_seconds, int min_renew_interval_seconds, int pullmessages_timeout_seconds)
                                 : logger_(&logger)
-                                , subscription_ttl_seconds_(subscription_ttl_seconds)
+                                , subscription_lease_seconds_(subscription_lease_seconds)
+                                , min_renew_interval_seconds_(min_renew_interval_seconds)
+                                , pullmessages_timeout_seconds_(pullmessages_timeout_seconds)
                         {
                                 // XML namespaces are those, which added in the beginning of responses
                                 xml_namespaces_ = &xml_namespaces;
@@ -243,7 +273,9 @@ namespace osrv
 
                         const std::map<std::string, std::string>* xml_namespaces_ = nullptr;
 
-                        int subscription_ttl_seconds_ = 60;
+                        int subscription_lease_seconds_ = 300;
+                        int min_renew_interval_seconds_ = 1;
+                        int pullmessages_timeout_seconds_ = 60;
                         size_t subscription_counter_ = 0;
                 };
 
