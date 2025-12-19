@@ -288,11 +288,27 @@ void PullPointPortDefaultHandler(std::shared_ptr<HttpServer::Response> response,
 
 		utility::http::fillResponseWithHeaders(*response, os.str());
 	}
-	else
-	{
-		// TODO: send something
-		// *response << "HTTP/1.1 400 Bad request\r\n" << "Content-Length: 0\r\n" << "Connection: close\r\n" << "\r\n";
-	}
+        else
+        {
+                namespace pt = boost::property_tree;
+
+                auto envelope_tree = utility::soap::getEnvelopeTree(XML_NAMESPACES);
+
+                pt::ptree code_node;
+                code_node.add("s:Value", "s:Sender");
+                code_node.add("s:Subcode.s:Value", "ter:InvalidAction");
+                envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", "Requested action is not supported");
+                envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+                pt::ptree root_tree;
+                root_tree.put_child("s:Envelope", envelope_tree);
+
+                std::ostringstream os;
+                pt::write_xml(os, root_tree);
+
+                utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+        }
 }
 
 // EVENTS SERVICE PORT
