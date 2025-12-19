@@ -21,12 +21,13 @@ namespace osrv
 
 	namespace event {
 
-                void PullPoint::PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response,
-                        int timeout_seconds, int message_limit)
+                void PullPoint::PullMessages(pull_messages_handler_t handler, expiration_handler_t expiration_handler,
+                        std::shared_ptr<HttpServer::Response> response, int timeout_seconds, int message_limit)
                 {
                         is_client_waiting_ = true;
 
                         handler_ = handler;
+                        pullmessages_expired_handler_ = expiration_handler;
                         response_writer_ = response;
 
                         current_timeout_interval_seconds_ = timeout_seconds > 0 ? timeout_seconds : timeout_interval_;
@@ -69,10 +70,21 @@ namespace osrv
                         response_to_pullmessages();
                 }
 		
-		void PullPoint::response_to_pullmessages()
-		{
-			if (!is_client_waiting_)
-				return;
+                void PullPoint::response_to_pullmessages()
+                {
+                        if (!is_client_waiting_)
+                                return;
+
+                        const auto now = boost::posix_time::microsec_clock::universal_time();
+                        if (IsExpired(now))
+                        {
+                                if (pullmessages_expired_handler_ && response_writer_)
+                                        pullmessages_expired_handler_(shared_from_this(), response_writer_);
+
+                                response_writer_.reset();
+                                is_client_waiting_ = false;
+                                return;
+                        }
 
 			// Do serialize all stored events
 
@@ -116,6 +128,15 @@ namespace osrv
                         termination_timer_.async_wait([self](const boost::system::error_code& error) {
                                         if (error)
                                                 return;
+
+                                        self->pullmessages_timer_.cancel();
+
+                                        if (self->is_client_waiting_ && self->pullmessages_expired_handler_ && self->response_writer_)
+                                        {
+                                                self->pullmessages_expired_handler_(self, self->response_writer_);
+                                                self->response_writer_.reset();
+                                                self->is_client_waiting_ = false;
+                                        }
 
                                         if (self->expiration_handler_)
                                                 self->expiration_handler_(self->GetSubscriptionReference());
@@ -226,31 +247,20 @@ namespace osrv
                                 now = boost::posix_time::microsec_clock::universal_time();
                                 if ((*pp_it)->IsExpired(now))
                                 {
-                                        (*pp_it)->DisconnectFromGenerators();
-                                        pullpoints_.erase(pp_it);
+                                (*pp_it)->DisconnectFromGenerators();
+                                pullpoints_.erase(pp_it);
 
-                                        logger_->Error("PullMessages received for expired subscription: " + subscription_reference);
-                                        auto envelope_tree = utility::soap::getEnvelopeTree(*xml_namespaces_);
-                                        boost::property_tree::ptree code_node;
-                                        code_node.add("s:Value", "s:Sender");
-                                        code_node.add("s:Subcode.s:Value", "wstop:ResourceUnknown");
-                                        envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
-                                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", "Subscription expired");
-                                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
-
-                                        boost::property_tree::ptree root_tree;
-                                        root_tree.put_child("s:Envelope", envelope_tree);
-
-                                        std::ostringstream os;
-                                        boost::property_tree::write_xml(os, root_tree);
-
-                                        utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
-                                        return;
-                                }
+                                logger_->Error("PullMessages received for expired subscription: " + subscription_reference);
+                                respond_with_expired_fault(response);
+                                return;
+                        }
 
                                 (*pp_it)->PullMessages([msg_id, this](std::shared_ptr<PullPoint> pullpoint, std::deque<NotificationMessage> events,
                                                 std::shared_ptr<HttpServer::Response> response) {
                                                 do_pullmessages_response(pullpoint, msg_id, std::move(events), response);
+                                        }, [this](std::shared_ptr<PullPoint> pullpoint, std::shared_ptr<HttpServer::Response> response) {
+                                                logger_->Error("PullMessages wait expired for subscription: " + pullpoint->GetSubscriptionReference());
+                                                respond_with_expired_fault(response);
                                         }, response, timeout, msg_limit);
                         }
                         else
@@ -426,23 +436,42 @@ namespace osrv
                                 pullpoints_.end());
                 }
 		
-		void NotificationsManager::Run()
-		{
-			for (auto& eg : event_generators_)
-			{
-				eg->Run();
+                void NotificationsManager::Run()
+                {
+                        for (auto& eg : event_generators_)
+                        {
+                                eg->Run();
 			}
 
 			io_work_ = std::unique_ptr<work_t>(new work_t(io_context_));
 			
-			worker_thread_ = std::unique_ptr<std::thread>(new std::thread(
-				[this]() {
-					io_context_.run();
-				}
-			));
+                        worker_thread_ = std::unique_ptr<std::thread>(new std::thread(
+                                [this]() {
+                                        io_context_.run();
+                                }
+                        ));
 
-			logger_->Debug("NotificationsManager is run successfully");
-		}
+                        logger_->Debug("NotificationsManager is run successfully");
+                }
+
+                void NotificationsManager::respond_with_expired_fault(std::shared_ptr<HttpServer::Response> response)
+                {
+                        auto envelope_tree = utility::soap::getEnvelopeTree(*xml_namespaces_);
+                        boost::property_tree::ptree code_node;
+                        code_node.add("s:Value", "s:Sender");
+                        code_node.add("s:Subcode.s:Value", "wstop:ResourceUnknown");
+                        envelope_tree.add_child("s:Body.s:Fault.s:Code", code_node);
+                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text", "Subscription expired");
+                        envelope_tree.put("s:Body.s:Fault.s:Reason.s:Text.<xmlattr>.xml:lang", "en");
+
+                        boost::property_tree::ptree root_tree;
+                        root_tree.put_child("s:Envelope", envelope_tree);
+
+                        std::ostringstream os;
+                        boost::property_tree::write_xml(os, root_tree);
+
+                        utility::http::fillResponseWithHeaders(*response, os.str(), utility::http::ClientErrorDefaultWriter);
+                }
 
                 void NotificationsManager::do_pullmessages_response(std::shared_ptr<PullPoint> pullpoint, const std::string& msg_id,
                         std::deque<NotificationMessage>&& events, std::shared_ptr<HttpServer::Response> response)
