@@ -45,6 +45,23 @@ static const std::string EVENT_CONFIGS_FILE = "event.config";
 // List of implemented methods of Events service port
 const std::string GetEventProperties = "GetEventProperties";
 
+namespace
+{
+        std::string build_event_service_base_address()
+        {
+                auto port = server_configs->http_port_;
+                if (!EVENT_CONFIGS_TREE.get<bool>("PullPoint.UseHttpServerPort"))
+                        port = std::to_string(EVENT_CONFIGS_TREE.get<unsigned short>("PullPoint.Port"));
+
+                return "http://" + server_configs->ipv4_address_ + ":" + port;
+        }
+
+        std::string build_event_service_endpoint()
+        {
+                return build_event_service_base_address() + "/onvif/event_service";
+        }
+}
+
 namespace osrv
 {
 namespace event
@@ -78,23 +95,22 @@ struct CreatePullPointSubscriptionHandler : public utility::http::RequestHandler
                 pt::ptree analytics_configs;
                 auto envelope_tree = utility::soap::getEnvelopeTree(XML_NAMESPACES);
 
-		envelope_tree.add("s:Header.wsa:Action",
-											"http://www.onvif.org/ver10/events/wsdl/EventPortType/CreatePullPointSubscriptionResponse");
+                envelope_tree.add("s:Header.wsa:Action",
+                                                                                        "http://www.onvif.org/ver10/events/wsdl/EventPortType/CreatePullPointSubscriptionResponse");
 
-		auto port = server_configs->http_port_;
-		if (!EVENT_CONFIGS_TREE.get<bool>("PullPoint.UseHttpServerPort"))
-			port = std::to_string(EVENT_CONFIGS_TREE.get<unsigned short>("PullPoint.Port"));
-		std::string sub_ref = "http://";
-		sub_ref += server_configs->ipv4_address_ + ":" + port + "/";
+                const auto base_address = build_event_service_base_address();
+                const auto event_service_endpoint = build_event_service_endpoint();
 
                 auto pullpoint = notifications_manager->CreatePullPoint(topic_filters);
-		sub_ref += pullpoint->GetSubscriptionReference();
+                const auto subscription_address = base_address + "/" + pullpoint->GetSubscriptionReference();
+                pullpoint->SetSubscriptionAddress(subscription_address);
+                pullpoint->SetServiceEndpoint(event_service_endpoint);
 
-		pt::ptree response_node;
-		response_node.add("tet:SubscriptionReference.wsa:Address", sub_ref);
+                pt::ptree response_node;
+                response_node.add("tet:SubscriptionReference.wsa:Address", subscription_address);
 
-		response_node.add("wsnt:CurrentTime", pullpoint->GetLastRenew());
-		response_node.add("wsnt:TerminationTime", pullpoint->GetTerminationTime());
+                response_node.add("wsnt:CurrentTime", pullpoint->GetLastRenew());
+                response_node.add("wsnt:TerminationTime", pullpoint->GetTerminationTime());
 
 		envelope_tree.add_child("s:Body.tet:CreatePullPointSubscriptionResponse", response_node);
 
