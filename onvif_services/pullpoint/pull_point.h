@@ -12,6 +12,7 @@
 #include <vector>
 #include <optional>
 #include <utility>
+#include <functional>
 
 #include <boost/asio.hpp>
 #include <boost/signals2.hpp>
@@ -55,6 +56,8 @@ namespace osrv
 
                         using pull_messages_handler_t = std::function<void(std::shared_ptr<PullPoint> pullpoint,
                                 std::deque<NotificationMessage>&& events,
+                                std::shared_ptr<HttpServer::Response>)>;
+                        using expiration_handler_t = std::function<void(std::shared_ptr<PullPoint> pullpoint,
                                 std::shared_ptr<HttpServer::Response>)>;
 
                         PullPoint(const std::string& subscription_reference, boost::asio::io_context& io_context, const ILogger& logger)
@@ -122,8 +125,8 @@ namespace osrv
                         }
 
                         // This method is called when a subscriber want to pull events
-                        void PullMessages(pull_messages_handler_t handler, std::shared_ptr<HttpServer::Response> response,
-                                int timeout_seconds, int message_limit);
+                        void PullMessages(pull_messages_handler_t handler, expiration_handler_t expiration_handler,
+                                std::shared_ptr<HttpServer::Response> response, int timeout_seconds, int message_limit);
 
 			// This is method by which event generators should pass events,
 			// a new event should be stored to the queue
@@ -222,9 +225,10 @@ namespace osrv
                         int max_messages_ = 50;
                         int current_message_limit_ = 50;
 
-			std::deque<NotificationMessage> events_;
+                        std::deque<NotificationMessage> events_;
 
                         pull_messages_handler_t handler_;
+                        expiration_handler_t pullmessages_expired_handler_;
                         std::shared_ptr<HttpServer::Response> response_writer_;
 
                         bool is_client_waiting_;
@@ -301,6 +305,8 @@ namespace osrv
                                 const std::weak_ptr<PullPoint>& /*weak_pullpoint*/);
 
                         void prune_expired_pullpoints(const boost::posix_time::ptime& /*now*/);
+
+                        void respond_with_expired_fault(std::shared_ptr<HttpServer::Response> /*response*/);
 
 		private:
 			const ILogger* logger_;
