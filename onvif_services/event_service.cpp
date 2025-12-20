@@ -706,20 +706,32 @@ void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_ins
 	}
 
 	// add audio detection alarms generator
-	if (EVENT_CONFIGS_TREE.get<bool>("AudioDetection.GenerateEvents"))
-	{
-		auto audio_generator = std::make_shared<osrv::event::AudioDetectectionEventGenerator>(
-				EVENT_CONFIGS_TREE.get<std::string>("AudioDetection.SourceConfigurationToken"),
-				EVENT_CONFIGS_TREE.get<std::string>("AudioDetection.AnalyticsConfigurationToken"),
-				EVENT_CONFIGS_TREE.get<std::string>("AudioDetection.Rule"),
-				EVENT_CONFIGS_TREE.get<std::string>("AudioDetection.DataItemName"),
-				EVENT_CONFIGS_TREE.get<int>("AudioDetection.EventGenerationTimeout"),
-				EVENT_CONFIGS_TREE.get<std::string>("AudioDetection.Topic"), notifications_manager->GetIoContext(), *log_);
+        if (EVENT_CONFIGS_TREE.get<bool>("AudioDetection.GenerateEvents"))
+        {
+                auto audio_generator = std::make_shared<osrv::event::AudioDetectectionEventGenerator>(
+                                EVENT_CONFIGS_TREE.get<std::string>("AudioDetection.SourceConfigurationToken"),
+                                EVENT_CONFIGS_TREE.get<std::string>("AudioDetection.AnalyticsConfigurationToken"),
+                                EVENT_CONFIGS_TREE.get<std::string>("AudioDetection.Rule"),
+                                EVENT_CONFIGS_TREE.get<std::string>("AudioDetection.DataItemName"),
+                                EVENT_CONFIGS_TREE.get<int>("AudioDetection.EventGenerationTimeout"),
+                                EVENT_CONFIGS_TREE.get<std::string>("AudioDetection.Topic"), notifications_manager->GetIoContext(), *log_);
 
-		notifications_manager->AddGenerator(audio_generator);
-	}
+                notifications_manager->AddGenerator(audio_generator);
+        }
 
-	notifications_manager->Run();
+        if (EVENT_CONFIGS_TREE.get<bool>("ExternalToggle.GenerateEvents", false))
+        {
+                auto external_generator = std::make_shared<osrv::event::ExternalToggleEventGenerator>(
+                                EVENT_CONFIGS_TREE.get<std::string>("ExternalToggle.SourceToken", ""),
+                                EVENT_CONFIGS_TREE.get<std::string>("ExternalToggle.DataName", "State"),
+                                EVENT_CONFIGS_TREE.get<std::string>("ExternalToggle.Topic", "tns1:Device/Trigger/ExternalToggle"),
+                                notifications_manager->GetIoContext(), *log_,
+                                EVENT_CONFIGS_TREE.get<bool>("ExternalToggle.InitialState", false));
+
+                notifications_manager->AddGenerator(external_generator);
+        }
+
+        notifications_manager->Run();
 
 	// event service handlers
 	handlers.emplace_back(new GetEventPropertiesHandler{});
