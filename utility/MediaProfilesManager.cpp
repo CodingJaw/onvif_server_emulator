@@ -3,7 +3,6 @@
 #include <boost/property_tree/json_parser.hpp>
 
 #include <algorithm>
-#include <format>
 
 namespace pt = boost::property_tree;
 
@@ -196,7 +195,7 @@ void MediaProfilesManager::RemoveConfiguration(std::string_view profileToken, st
 
 std::string MediaProfilesManager::newProfileToken(size_t n) const
 {
-	return std::format("UserProfileToken{}", n);
+	return "UserProfileToken" + std::to_string(n);
 }
 
 pt::ptree::iterator MediaProfilesManager::getProfileNode(std::string_view profileToken) const
