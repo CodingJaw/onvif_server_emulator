@@ -8,6 +8,7 @@
 
 #include <boost/property_tree/ptree_fwd.hpp>
 
+#include <sstream>
 #include <string>
 
 class ILogger;
@@ -30,9 +31,11 @@ namespace util
 std::string generate_rtsp_url(const ServerConfigs& server_configs, const std::string& profile_stream_url);
 inline std::string generate_snapshot_url(const ServerConfigs& server_configs)
 {
-	auto port = server_configs.enabled_rtsp_port_forwarding ? std::to_string(server_configs.forwarded_http_port)
-																													: server_configs.http_port_;
-	return std::format("http://{}:{}/snapshot.jpeg", server_configs.ipv4_address_, port);
+        auto port = server_configs.enabled_rtsp_port_forwarding ? std::to_string(server_configs.forwarded_http_port)
+                                                                : server_configs.http_port_;
+        std::ostringstream url_stream;
+        url_stream << "http://" << server_configs.ipv4_address_ << ":" << port << "/snapshot.jpeg";
+        return url_stream.str();
 }
 
 using ptree = boost::property_tree::ptree;

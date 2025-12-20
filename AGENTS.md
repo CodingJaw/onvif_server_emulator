@@ -6,7 +6,7 @@
 - Document assumptions and limits when implementations are partial; avoid silent API/behavior changes.
 
 ## Tech Stack & Build
-- Language/standard: C++20.
+- Language/standard: C++17.
 - Core dependencies: Boost (system, date_time, regex, thread, asio, property-tree, signals2, optional test), GStreamer 1.16+ (core + pango, base/good/ugly/bad, x264/x265, gst-rtsp-server), Simple-Web-Server submodule.
 - Build system: CMake (minimum 3.16). Default build type is Debug when unspecified; executable target `main`, static lib `onvif_server`.
 - Windows guidance in `BUILD.md` (uses vcpkg). Linux instructions are TODO; prefer mirroring Windows dependency set via pkg-config for GStreamer and system Boost.
@@ -29,7 +29,7 @@
 - Other helpers under `utility/` provide SOAP parsing, HTTP helpers, digest auth, XML parsing, and media configuration readers; prefer extending these modules when adding similar functionality.
 
 ## Coding Rules & Conventions
-- Use C++20 features already present; prefer standard library utilities and `std::shared_ptr` as used throughout services.
+- Use C++17 features already present; prefer standard library utilities and `std::shared_ptr` as used throughout services.
 - Keep headers self-contained and guarded with `#pragma once`; follow existing include style (project headers in quotes, system/Boost in angle brackets).
 - Maintain namespace `osrv` for server code; avoid introducing new global namespaces.
 - Preserve logging patterns: use `ILogger` interface, keep log level checks minimal, and ensure user-facing warnings/errors remain informative.
