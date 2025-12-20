@@ -20,9 +20,13 @@
   - Logging: `Logger.h` plus console/file/stream factories (`include/ConsoleLogger.h`, `FileLogger.h`, `StreamLogger.h`, `LoggerFactories.h`).
   - ONVIF services (namespace `osrv`): base `IOnvifService` manages handlers, configs, namespaces. Concrete services under `onvif_services/` include Device, DeviceIO, Media/Media2, Event (with PullPoint/event_generators), Imaging, PTZ, Recording Search, Replay Control, Discovery, and physical components (e.g., `IDigitalInput`). Requests are defined in `onvif/OnvifRequest.h` and per-service handler files.
   - Configuration helpers: `include/onvif_services/service_configs.h` with impl in `src/onvif_services/service_configs.cpp` to load JSON configs into property trees.
-  - Utility helpers: HTTP/SOAP/auth parsers (`utility/HttpHelper`, `SoapHelper`, `AuthHelper`, `HttpDigestHelper`), media/ptz configuration readers, event service support, XML parsing (`XmlParser`), and media source readers (`VideoSourceReader`, `AudioSourceReader`).
-  - Third-party submodule: `Simple-Web-Server` added via `add_subdirectory` and needs to be present or initialized by CMake.
+- Utility helpers: HTTP/SOAP/auth parsers (`utility/HttpHelper`, `SoapHelper`, `AuthHelper`, `HttpDigestHelper`), media/ptz configuration readers, event service support, XML parsing (`XmlParser`), and media source readers (`VideoSourceReader`, `AudioSourceReader`).
+- Third-party submodule: `Simple-Web-Server` added via `add_subdirectory` and needs to be present or initialized by CMake.
 - Config-driven behavior: JSON in `server_configs/` (and related directories) shapes service availability, authentication modes, logging level, port forwarding, digital inputs, event PullPoint settings, discovery responses, and recording search windows (see README).
+
+### Utility folder notes
+- Date/time helpers live in `utility/datetime.hpp` and support composing ONVIF `tt:Date`/`tt:Time` structures for Device service handlers (e.g., GetSystemDateAndTime/SetSystemDateAndTime). Reuse these utilities when adjusting clock-related logic instead of duplicating conversion code.
+- Other helpers under `utility/` provide SOAP parsing, HTTP helpers, digest auth, XML parsing, and media configuration readers; prefer extending these modules when adding similar functionality.
 
 ## Coding Rules & Conventions
 - Use C++20 features already present; prefer standard library utilities and `std::shared_ptr` as used throughout services.
@@ -44,6 +48,11 @@
 - Partial/needs attention: Linux build instructions (marked TODO); some config options may be hardcoded or ignored (see README notes for Event PullPoint timeouts, Discovery static responses, Media2 enablement); validate that `server_configs` options affect runtime behavior before relying on them.
 - External dependencies (Boost/GStreamer) must be available on host; missing `GST_PLUGIN_PATH` triggers warnings but may degrade media features.
 - Unit tests are optional and off by default; CI expectations may vary—run relevant tests when altering service logic.
+
+## Event subscription / PullPoint guidance
+- PullPoint subscriptions now support topic-filtered generators, bounded per-subscription queues, and proper WS-Notification faults (`wstop:ResourceUnknown`) for unknown/expired references across PullMessages, Renew, and Unsubscribe paths.
+- Long-poll waits honor zero/positive client timeouts while respecting the `IgnoreClientsTimeout` config; expiration timers cancel pending waits to prevent success responses after expiry.
+- When implementing new event generators or subscription-dependent features, attach them through the existing NotificationsManager/PullPoint flow instead of bypassing the filters/queueing.
 
 ## How to Build & Run (Quick Reference)
 1. Initialize submodules if missing: `git submodule update --init --recursive` (or ensure `Simple-Web-Server/CMakeLists.txt` exists).

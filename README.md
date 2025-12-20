@@ -52,6 +52,22 @@ Each ONVIF service is implemented as a separate instance. Each service may have 
 
 "UseHttpServerPort" - specify this if you want pulling messages via PullPoint on a port differs from a http server's ports
 
+# ✅ ONVIF feature status
+
+This emulator aims to mirror ONVIF behaviors that are commonly exercised by clients. Highlights of the currently implemented and
+verified pieces include:
+
+- **Event subscriptions and PullPoint delivery:** CreatePullPointSubscription yields unique, persistent subscriptions with prope
+    r topic filtering, termination timers, and bounded per-subscription queues. PullMessages validates subscription state, fault
+    s with `wstop:ResourceUnknown` when references are missing or expired, honors zero/positive timeouts correctly, and does not
+    alter lease times. Renew and Unsubscribe follow WS-Notification fault codes and cleanup semantics.
+- **GetSystemDateAndTime / SetSystemDateAndTime:** Both operations are implemented and share a stored device clock state (date/
+    time type, timezone, daylight savings, UTC/local timestamps). SetSystemDateAndTime updates the stored clock, while GetSyste
+    mDateAndTime returns the configured values (including TZ and UTC/local fields) per ONVIF requirements.
+
+If you extend ONVIF coverage, keep user-visible behavior backward compatible and document any configuration flags or limitations
+ in this section.
+
  ## Discovery service configs
 
  #### Probe match properties
