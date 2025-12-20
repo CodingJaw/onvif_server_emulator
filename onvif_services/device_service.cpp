@@ -7,6 +7,7 @@
 #include "../utility/HttpDigestHelper.h"
 #include "../utility/HttpHelper.h"
 #include "../utility/SoapHelper.h"
+#include "../utility/DateTime.hpp"
 #include "../utility/XmlParser.h"
 
 #include "../Simple-Web-Server/server_http.hpp"
@@ -14,6 +15,8 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
+#include <cstdlib>
+#include <iomanip>
 
 // List of implemented methods
 const std::string GetCapabilities = "GetCapabilities";
@@ -265,21 +268,33 @@ struct GetSystemDateAndTimeHandler : public OnvifRequestBase
 	{
 	}
 
-	void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
-	{
-		auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
+        void operator()(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) override
+        {
+                auto envelope_tree = utility::soap::getEnvelopeTree(ns_);
 
-		envelope_tree.put("s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime.tt:DateTimeType", "NTP");
-		envelope_tree.put("s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime.tt:DaylightSavings", "false");
+                const auto system_datetime_cfg = service_configs_->get_child("GetSystemDateAndTime", pt::ptree{});
+                const auto datetime_type = system_datetime_cfg.get<std::string>("DateTimeType", "NTP");
+                const auto daylight_savings = system_datetime_cfg.get<bool>("DaylightSavings", false);
 
-		pt::ptree root_tree;
-		root_tree.put_child("s:Envelope", envelope_tree);
+                pt::ptree system_dt_node;
+                system_dt_node.put("tt:DateTimeType", datetime_type);
+                system_dt_node.put("tt:DaylightSavings", daylight_savings ? "true" : "false");
+                system_dt_node.put("tt:TimeZone.tt:TZ", utility::datetime::current_timezone_tz_string());
+                system_dt_node.add_child("tt:UTCDateTime",
+                                        utility::datetime::make_onvif_datetime_node(utility::datetime::system_utc_now()));
+                system_dt_node.add_child("tt:LocalDateTime",
+                                        utility::datetime::make_onvif_datetime_node(utility::datetime::system_local_now()));
 
-		std::ostringstream os;
-		pt::write_xml(os, root_tree);
+                envelope_tree.add_child("s:Body.tds:GetSystemDateAndTimeResponse.tds:SystemDateAndTime", system_dt_node);
 
-		utility::http::fillResponseWithHeaders(*response, os.str());
-	}
+                pt::ptree root_tree;
+                root_tree.put_child("s:Envelope", envelope_tree);
+
+                std::ostringstream os;
+                pt::write_xml(os, root_tree);
+
+                utility::http::fillResponseWithHeaders(*response, os.str());
+        }
 };
 
 DeviceService::DeviceService(const std::string& service_uri, const std::string& service_name,
@@ -293,7 +308,7 @@ DeviceService::DeviceService(const std::string& service_uri, const std::string& 
 	requestHandlers_.push_back(std::make_shared<GetRelayOutputsHandler>(xml_namespaces_, configs_ptree_));
 	requestHandlers_.push_back(
 			std::make_shared<GetServicesHandler>(xml_namespaces_, configs_ptree_, srv->ServerAddress()));
-	requestHandlers_.push_back(std::make_shared<GetScopesHandler>(xml_namespaces_, configs_ptree_));
-	requestHandlers_.push_back(std::make_shared<GetSystemDateAndTimeHandler>(xml_namespaces_, configs_ptree_));
+        requestHandlers_.push_back(std::make_shared<GetScopesHandler>(xml_namespaces_, configs_ptree_));
+        requestHandlers_.push_back(std::make_shared<GetSystemDateAndTimeHandler>(xml_namespaces_, configs_ptree_));
 }
 } // namespace osrv
