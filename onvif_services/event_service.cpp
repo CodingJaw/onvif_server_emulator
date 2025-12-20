@@ -8,6 +8,7 @@
 #include "event_service_utils.h"
 #include "device_service.h"
 #include "pullpoint/pull_point.h"
+#include "../include/ExternalToggleApi.h"
 
 #include "../utility/EventService.h"
 
@@ -727,6 +728,8 @@ void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_ins
                                 EVENT_CONFIGS_TREE.get<std::string>("ExternalToggle.Topic", "tns1:Device/Trigger/ExternalToggle"),
                                 notifications_manager->GetIoContext(), *log_,
                                 EVENT_CONFIGS_TREE.get<bool>("ExternalToggle.InitialState", false));
+
+                register_external_toggle_api(srv, external_generator, *log_);
 
                 notifications_manager->AddGenerator(external_generator);
         }

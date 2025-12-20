@@ -132,12 +132,14 @@ source_group("OnvifServices" FILES ${SERVICES_SRC})
 source_group("Utility" FILES ${UTILITY_SRC})
 
 add_library(onvif_server STATIC
-	Logger.h
-	HttpServerFwd.h
-	include/IOnvifServer.h
-	src/IOnvifServer.cpp
-	Server.cpp
-	Server.h
+        Logger.h
+        HttpServerFwd.h
+        include/ExternalToggleApi.h
+        include/IOnvifServer.h
+        src/IOnvifServer.cpp
+        src/ExternalToggleApi.cpp
+        Server.cpp
+        Server.h
 	RtspServer.cpp
 	RtspServer.h
 	include/onvif_services/service_configs.h

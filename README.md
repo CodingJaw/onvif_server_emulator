@@ -52,6 +52,24 @@ Each ONVIF service is implemented as a separate instance. Each service may have 
 
 "UseHttpServerPort" - specify this if you want pulling messages via PullPoint on a port differs from a http server's ports
 
+### Triggering the ExternalToggle generator via HTTP
+
+1. Enable the generator in `server_configs/event.config` by setting `"ExternalToggle" -> "GenerateEvents"` to `true` and adjust
+   the topic or source token if needed.
+2. Build and start the emulator (for example: `cmake -S . -B build && cmake --build build && ./build/main ./server_configs`).
+3. Send a POST request to the HTTP server on the configured address/port with a JSON body containing a boolean `state` value.
+   Example using curl (replace the host and port with values from `server_configs/common.config`):
+
+   ```bash
+   curl -X POST \
+     -H "Content-Type: application/json" \
+     -d '{"state": true}' \
+     http://127.0.0.1:10080/api/external-toggle
+   ```
+
+The endpoint forwards the state to the ExternalToggle generator's `Trigger` method so connected PullPoint subscribers receive
+the updated value.
+
 # ✅ ONVIF feature status
 
 This emulator aims to mirror ONVIF behaviors that are commonly exercised by clients. Highlights of the currently implemented and
