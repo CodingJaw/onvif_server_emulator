@@ -4,6 +4,7 @@
 #include "IOnvifServer.h"
 #include "Logger.h"
 #include "RtspServer.h"
+#include "utility/SystemClock.h"
 
 #include "utility/HttpDigestHelper.h"
 
@@ -30,9 +31,9 @@ using HttpServer = SimpleWeb::Server<socket_t>;
 
 struct ServerConfigs
 {
-	std::string ipv4_address_;
-	std::string http_port_;
-	std::string rtsp_port_;
+        std::string ipv4_address_;
+        std::string http_port_;
+        std::string rtsp_port_;
 
 	bool enabled_http_port_forwarding;
 	unsigned short forwarded_http_port;
@@ -50,10 +51,12 @@ struct ServerConfigs
 	// milliseconds
 	unsigned short network_delay_simulation_ = 0;
 
-	bool multichannel_enabled_ = false;
-	unsigned char channels_count_ = 0;
+        bool multichannel_enabled_ = false;
+        unsigned char channels_count_ = 0;
 
-	std::string rtsp_streaming_file_;
+        std::string rtsp_streaming_file_;
+
+        std::shared_ptr<SystemClock> system_clock_ = std::make_shared<SystemClock>();
 };
 
 class Server : public IOnvifServer
