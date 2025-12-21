@@ -54,12 +54,6 @@ namespace osrv
 void register_external_toggle_api(HttpServer& server, std::shared_ptr<event::ExternalToggleEventGenerator> generator,
         const ILogger& logger)
 {
-        if (!generator)
-        {
-                logger.Warn("ExternalToggle generator is not configured; skipping API registration.");
-                return;
-        }
-
         auto generator_weak = std::weak_ptr<event::ExternalToggleEventGenerator>(generator);
 
         server.resource["^/api/external-toggle$"]["POST"] = [generator_weak, &logger](auto response, auto request) {
@@ -67,7 +61,7 @@ void register_external_toggle_api(HttpServer& server, std::shared_ptr<event::Ext
                 if (!generator_locked)
                 {
                         response->write(SimpleWeb::StatusCode::server_error_service_unavailable,
-                                "External toggle generator is unavailable\n");
+                                "External toggle generator is unavailable; enable ExternalToggle.GenerateEvents to activate this endpoint\n");
                         return;
                 }
 
@@ -84,6 +78,9 @@ void register_external_toggle_api(HttpServer& server, std::shared_ptr<event::Ext
                 response->write(SimpleWeb::StatusCode::success_ok,
                         std::string("External toggle set to ") + (*state ? "true" : "false") + "\n");
         };
+
+        if (!generator)
+                logger.Warn("ExternalToggle generator is not configured; /api/external-toggle will return 503 until enabled.");
 
         logger.Info("External toggle API registered at /api/external-toggle");
 }

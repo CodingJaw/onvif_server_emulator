@@ -68,7 +68,8 @@ Each ONVIF service is implemented as a separate instance. Each service may have 
    ```
 
 The endpoint forwards the state to the ExternalToggle generator's `Trigger` method so connected PullPoint subscribers receive
-the updated value.
+the updated value. If the generator is disabled (GenerateEvents = false), the endpoint stays available but returns HTTP 503 to
+indicate it must be enabled in `server_configs/event.config` before it can trigger events.
 
 # ✅ ONVIF feature status
 

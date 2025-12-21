@@ -720,19 +720,20 @@ void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_ins
                 notifications_manager->AddGenerator(audio_generator);
         }
 
+        std::shared_ptr<osrv::event::ExternalToggleEventGenerator> external_generator;
         if (EVENT_CONFIGS_TREE.get<bool>("ExternalToggle.GenerateEvents", false))
         {
-                auto external_generator = std::make_shared<osrv::event::ExternalToggleEventGenerator>(
+                external_generator = std::make_shared<osrv::event::ExternalToggleEventGenerator>(
                                 EVENT_CONFIGS_TREE.get<std::string>("ExternalToggle.SourceToken", ""),
                                 EVENT_CONFIGS_TREE.get<std::string>("ExternalToggle.DataName", "State"),
                                 EVENT_CONFIGS_TREE.get<std::string>("ExternalToggle.Topic", "tns1:Device/Trigger/ExternalToggle"),
                                 notifications_manager->GetIoContext(), *log_,
                                 EVENT_CONFIGS_TREE.get<bool>("ExternalToggle.InitialState", false));
 
-                register_external_toggle_api(srv, external_generator, *log_);
-
                 notifications_manager->AddGenerator(external_generator);
         }
+
+        register_external_toggle_api(srv, external_generator, *log_);
 
         notifications_manager->Run();
 
