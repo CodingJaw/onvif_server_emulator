@@ -2,6 +2,7 @@
 
 #include "../Logger.h"
 #include "../utility/DateTime.hpp"
+#include "NotificationMessage.h"
 #include "event_generators.h"
 
 #include <deque>
@@ -22,28 +23,10 @@
 #include "../HttpServerFwd.h"
 #include "../Simple-Web-Server/server_http.hpp"
 
-namespace
-{
-	using StringPairsList_t = std::vector<std::pair<std::string, std::string>>;
-}
-
 namespace osrv
 {
-	namespace event
-	{
-                struct NotificationMessage
-                {
-                        std::string topic;
-                        std::string utc_time;
-                        std::string property_operation;
-
-			// { name, value }
-			StringPairsList_t source_item_descriptions;
-
-                        std::string data_name;
-                        std::string data_value;
-                };
-
+        namespace event
+        {
                 struct TopicExpression
                 {
                         std::string dialect;

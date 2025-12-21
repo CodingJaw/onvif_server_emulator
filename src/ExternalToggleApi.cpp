@@ -12,7 +12,7 @@
 
 namespace
 {
-        std::optional<bool> parse_state(const std::string& body, const osrv::ILogger& logger)
+        std::optional<bool> parse_state(const std::string& body, const ILogger& logger)
         {
                 namespace pt = boost::property_tree;
 

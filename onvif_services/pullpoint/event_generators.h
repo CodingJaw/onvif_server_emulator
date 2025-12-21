@@ -2,6 +2,7 @@
 
 #include "../Logger.h"
 #include "../onvif_services/physical_components/IDigitalInput.h"
+#include "NotificationMessage.h"
 
 #include <functional>
 #include <deque>
@@ -14,8 +15,6 @@ namespace osrv
 {
     namespace event
     {
-        struct NotificationMessage;
-
         class IEventGenerator
         {
         public:
