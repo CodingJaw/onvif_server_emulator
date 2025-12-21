@@ -8,6 +8,7 @@
 #include "event_service_utils.h"
 #include "device_service.h"
 #include "pullpoint/pull_point.h"
+#include "pullpoint/external_toggle_bridge.h"
 
 #include "../utility/EventService.h"
 
@@ -729,6 +730,13 @@ void init_service(HttpServer& srv, const osrv::ServerConfigs& server_configs_ins
                                 EVENT_CONFIGS_TREE.get<bool>("ExternalToggle.InitialState", false));
 
                 notifications_manager->AddGenerator(external_generator);
+                osrv::event::RegisterExternalToggleGenerator(external_generator);
+
+                if (const auto ipc_port = EVENT_CONFIGS_TREE.get_optional<unsigned short>("ExternalToggle.IpcPort"))
+                {
+                        auto ipc_address = EVENT_CONFIGS_TREE.get<std::string>("ExternalToggle.IpcAddress", "127.0.0.1");
+                        osrv::event::StartExternalToggleSocket(*ipc_port, ipc_address, *log_);
+                }
         }
 
         notifications_manager->Run();

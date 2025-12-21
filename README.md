@@ -52,6 +52,12 @@ Each ONVIF service is implemented as a separate instance. Each service may have 
 
 "UseHttpServerPort" - specify this if you want pulling messages via PullPoint on a port differs from a http server's ports
 
+## External toggle bridge
+
+An optional TCP bridge allows an external helper to toggle the `ExternalToggle` event generator without touching ONVIF/SOAP APIs.
+Enable the generator in `server_configs/event.config` and set the `IpcPort`/`IpcAddress` fields, then start the helper documented in
+[`rust_bridge/README.md`](rust_bridge/README.md).
+
 # ✅ ONVIF feature status
 
 This emulator aims to mirror ONVIF behaviors that are commonly exercised by clients. Highlights of the currently implemented and

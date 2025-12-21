@@ -1,2 +1,4 @@
 build_x64/
 CMakeLists.txt~
+target/
+rust_bridge/target/

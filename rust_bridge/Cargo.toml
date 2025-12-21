@@ -1,0 +1,10 @@
+[package]
+name = "rust_bridge"
+version = "0.1.0"
+edition = "2021"
+
+authors = ["ONVIF Server Emulator"]
+description = "Helper to forward external toggle state changes into the ONVIF server"
+license = "MIT"
+
+[dependencies]
